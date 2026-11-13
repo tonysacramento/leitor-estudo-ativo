@@ -1,6 +1,6 @@
 // Service worker do Leitor de Estudo Ativo.
 // Mude a versão sempre que publicar alterações, para os aparelhos baixarem a nova versão.
-const VERSION = 'v3.0.0';
+const VERSION = 'v3.1.0';
 const APP_CACHE = `leitor-app-${VERSION}`;
 const LIB_CACHE = 'leitor-libs-v1';
 
@@ -12,7 +12,7 @@ const APP_FILES = [
 // PDF.js fica guardado no aparelho para abrir PDFs mesmo sem internet.
 const PDFJS = 'https://cdn.jsdelivr.net/npm/pdfjs-dist@4.10.38/legacy/build/';
 const LIB_FILES = [PDFJS + 'pdf.min.mjs', PDFJS + 'pdf.worker.min.mjs'];
-const LIB_HOSTS = ['cdn.jsdelivr.net', 'unpkg.com', 'cdnjs.cloudflare.com'];
+const LIB_HOSTS = ['cdn.jsdelivr.net', 'unpkg.com', 'cdnjs.cloudflare.com', 'fonts.googleapis.com', 'fonts.gstatic.com'];
 
 self.addEventListener('install', event => {
   event.waitUntil((async () => {

@@ -4,6 +4,9 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <meta name="color-scheme" content="light dark">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Literata:ital,opsz,wght@0,7..72,400;0,7..72,700;1,7..72,400&display=swap">
   <meta name="theme-color" content="#174b87">
   <meta name="description" content="Leitura em voz alta com destaque de frases e revisão pelo Método I-L-E.">
   <link rel="manifest" href="manifest.json">
@@ -13,7 +16,7 @@
   <meta name="mobile-web-app-capable" content="yes">
   <meta name="apple-mobile-web-app-title" content="Leitor Ativo">
   <meta name="apple-mobile-web-app-status-bar-style" content="default">
-  <title>Leitor de Estudo Ativo • Versão 3.0</title>
+  <title>Leitor de Estudo Ativo • Versão 3.1</title>
   <!-- PDF.js (módulo moderno) é carregado somente ao abrir PDFs. Biblioteca e worker usam a mesma versão. -->
   <style>
     :root {
@@ -124,6 +127,67 @@
     :root[data-theme="dark"] .verdict.ok { color: #7be0a4; } :root[data-theme="dark"] .verdict.bad { color: #ffaaa1; }
     .prompt-box { min-height: 120px; font-size: .82rem; }
     @media (max-width: 740px) { .ile-config { grid-template-columns: 1fr; } }
+    .reader h3.doc-h { font-size: 1.04em; line-height: 1.5; margin: .4em 0 .6em; }
+    /* ===================== Modo leitura (estilo Kindle) ===================== */
+    .book { position: fixed; inset: 0; z-index: 1000; overflow: hidden; background: var(--bk-bg); color: var(--bk-fg);
+      --bk-font: 'Literata', Georgia, serif; --bk-size: 20px; --bk-lh: 1.65; --bk-align: justify;
+      --bk-bg: #fbfaf7; --bk-fg: #1d1d1b; --bk-muted: #77726a; --bk-hl: #ffe99a; --bk-bar: rgba(251,250,247,.97); --bk-line: #e3dfd6; }
+    .book[hidden] { display: none !important; }
+    .book[data-bk-theme="sepia"] { --bk-bg: #f4ecd8; --bk-fg: #4b3a2a; --bk-muted: #8a7356; --bk-hl: #ebd28c; --bk-bar: rgba(244,236,216,.97); --bk-line: #dccfae; }
+    .book[data-bk-theme="escuro"] { --bk-bg: #26282b; --bk-fg: #dcd8d0; --bk-muted: #9a978f; --bk-hl: #5f4e1d; --bk-bar: rgba(38,40,43,.97); --bk-line: #3d4045; color-scheme: dark; }
+    .book[data-bk-theme="preto"] { --bk-bg: #000; --bk-fg: #c9c9c9; --bk-muted: #868686; --bk-hl: #4b3c0b; --bk-bar: rgba(12,12,12,.97); --bk-line: #262626; color-scheme: dark; }
+    .book-head { position: absolute; top: calc(env(safe-area-inset-top, 0px) + 14px); left: 60px; right: 60px; text-align: center; font: 600 .74rem/1.2 system-ui, sans-serif; color: var(--bk-muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; letter-spacing: .02em; }
+    .book-stage { position: absolute; top: calc(env(safe-area-inset-top, 0px) + 44px); bottom: calc(env(safe-area-inset-bottom, 0px) + 44px); overflow: hidden; outline: none; }
+    .book-flow { height: 100%; column-fill: auto; font-family: var(--bk-font); font-size: var(--bk-size); line-height: var(--bk-lh); text-align: var(--bk-align); -webkit-hyphens: auto; hyphens: auto; transition: transform .3s cubic-bezier(.2,.7,.2,1); will-change: transform; -webkit-user-select: none; user-select: none; -webkit-touch-callout: none; overflow-wrap: break-word; }
+    .book-flow p { margin: 0 0 .35em; text-indent: 1.5em; orphans: 2; widows: 2; }
+    .book-flow p.first { text-indent: 0; }
+    .book-flow h2 { font-size: 1.16em; line-height: 1.32; text-align: left; margin: 1.3em 0 .75em; font-weight: 700; -webkit-hyphens: manual; hyphens: manual; break-after: avoid; break-inside: avoid; }
+    .book-flow h2:first-child { margin-top: 0; }
+    .book-flow .s { border-radius: 3px; -webkit-box-decoration-break: clone; box-decoration-break: clone; transition: background .2s; }
+    .book-flow .s.active { background: var(--bk-hl); }
+    .book-flow p.end { text-align: center; text-indent: 0; margin-top: 2.2em; color: var(--bk-muted); font-size: .8em; letter-spacing: .2em; }
+    .book-foot { position: absolute; left: 0; right: 0; bottom: env(safe-area-inset-bottom, 0px); height: 44px; display: grid; grid-template-columns: 1fr auto 1fr; align-items: center; padding: 0 18px; font: .76rem/1.2 system-ui, sans-serif; color: var(--bk-muted); }
+    .book-foot #bkLeft { text-align: right; }
+    .book button { background: transparent; color: var(--bk-fg); border-color: var(--bk-line); }
+    .book button:hover:not(:disabled) { background: color-mix(in srgb, var(--bk-fg) 8%, transparent); border-color: var(--bk-muted); }
+    .book-mini { width: 34px; height: 34px; padding: 0; border-radius: 50%; font-size: .85rem; line-height: 1; }
+    .book-top { position: absolute; top: 0; left: 0; right: 0; z-index: 3; display: flex; align-items: center; gap: 6px; padding: calc(env(safe-area-inset-top, 0px) + 6px) 10px 6px; background: var(--bk-bar); border-bottom: 1px solid var(--bk-line); transform: translateY(-105%); transition: transform .22s ease; font-family: system-ui, sans-serif; }
+    .book-top button { border: 0; padding: 8px 11px; font-size: 1.05rem; }
+    .book-title { flex: 1; min-width: 0; font-weight: 700; font-size: .92rem; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+    .book-panel { position: absolute; left: 0; right: 0; bottom: 0; z-index: 3; padding: 12px 16px calc(env(safe-area-inset-bottom, 0px) + 12px); background: var(--bk-bar); border-top: 1px solid var(--bk-line); transform: translateY(105%); transition: transform .22s ease; font-family: system-ui, sans-serif; }
+    .book.chrome .book-top, .book.chrome .book-panel { transform: none; }
+    .bk-scrub { display: flex; align-items: center; gap: 12px; max-width: 760px; margin: 0 auto; }
+    .bk-scrub input { flex: 1; accent-color: var(--bk-fg); }
+    .bk-scrub span { font-size: .8rem; color: var(--bk-muted); white-space: nowrap; min-width: 92px; text-align: right; }
+    .bk-controls { display: flex; justify-content: center; align-items: center; gap: 8px; margin: 10px auto 2px; flex-wrap: wrap; }
+    .bk-controls button { min-width: 44px; padding: 8px 12px; }
+    .bk-controls .bk-play { min-width: 64px; font-size: 1.05rem; }
+    .bk-controls .bk-speed { font-size: .82rem; color: var(--bk-muted); min-width: 38px; text-align: center; }
+    .bk-sep { width: 1px; height: 26px; background: var(--bk-line); margin: 0 6px; }
+    .bk-tip { text-align: center; color: var(--bk-muted); font-size: .74rem; margin: 6px 0 0; }
+    .book-sheet { position: absolute; z-index: 4; top: calc(env(safe-area-inset-top, 0px) + 54px); right: 10px; width: min(360px, calc(100% - 20px)); max-height: calc(100% - 130px); overflow-y: auto; background: var(--bk-bar); color: var(--bk-fg); border: 1px solid var(--bk-line); border-radius: 14px; box-shadow: 0 16px 50px rgba(0,0,0,.22); padding: 14px; font-family: system-ui, sans-serif; }
+    .book-sheet.left { right: auto; left: 10px; }
+    .book-sheet[hidden] { display: none; }
+    .bk-row { display: flex; flex-direction: column; gap: 6px; margin-bottom: 13px; }
+    .bk-row > span { font-size: .74rem; font-weight: 800; letter-spacing: .06em; text-transform: uppercase; color: var(--bk-muted); }
+    .bk-seg { display: flex; gap: 6px; align-items: center; }
+    .bk-seg button { flex: 1; padding: 8px 6px; font-size: .86rem; font-weight: 600; }
+    .bk-seg strong { min-width: 34px; text-align: center; }
+    .book button[aria-pressed="true"] { border-color: var(--bk-fg); box-shadow: inset 0 0 0 1px var(--bk-fg); }
+    .bk-themes { display: flex; gap: 10px; }
+    .bk-themes button { width: 44px; height: 44px; border-radius: 50%; padding: 0; font: 700 .9rem Georgia, serif; }
+    .bk-themes [data-value="branco"] { background: #fbfaf7; color: #1d1d1b; }
+    .bk-themes [data-value="sepia"] { background: #f4ecd8; color: #4b3a2a; }
+    .bk-themes [data-value="escuro"] { background: #26282b; color: #dcd8d0; }
+    .bk-themes [data-value="preto"] { background: #000; color: #c9c9c9; }
+    .book .bk-themes button:hover { background-color: inherit; }
+    #bkTocList { list-style: none; margin: 8px 0 0; padding: 0; }
+    #bkTocList button { display: flex; justify-content: space-between; gap: 10px; width: 100%; text-align: left; border: 0; border-bottom: 1px solid var(--bk-line); border-radius: 0; padding: 10px 4px; font-weight: 500; font-size: .9rem; }
+    #bkTocList button span:last-child { color: var(--bk-muted); flex: none; }
+    .book-toast { position: absolute; z-index: 5; left: 50%; bottom: calc(env(safe-area-inset-bottom, 0px) + 58px); transform: translateX(-50%); max-width: calc(100% - 40px); background: rgba(20,20,20,.86); color: #fff; padding: 9px 15px; border-radius: 99px; font: .84rem/1.3 system-ui, sans-serif; text-align: center; opacity: 0; transition: opacity .2s; pointer-events: none; }
+    .book-toast.show { opacity: 1; }
+    .book.chrome .book-toast { bottom: calc(env(safe-area-inset-bottom, 0px) + 150px); }
+    @media (prefers-reduced-motion: reduce) { .book-flow, .book-top, .book-panel { transition: none !important; } }
     @media (max-width: 740px) {
       .settings { grid-template-columns: 1fr; }
       .mini-grid { grid-template-columns: 1fr; }
@@ -138,7 +202,7 @@
 <main>
   <header class="header">
     <div>
-      <div class="eyebrow">Estudo com áudio • v3.0</div>
+      <div class="eyebrow">Estudo com áudio • v3.1</div>
       <h1>Leitor de Estudo Ativo</h1>
       <p class="subtitle">Ouça, acompanhe a frase em destaque e retome de onde quiser.</p>
     </div>
@@ -215,6 +279,7 @@
       <p class="placeholder">O conteúdo processado aparecerá aqui. Clique numa frase para começar por ela.</p>
     </div>
     <div class="toolbar" role="group" aria-label="Controles de reprodução">
+      <button class="primary" id="btnBook" type="button" title="Abrir em tela cheia, com páginas, como num e-reader">📖 Ler como livro</button>
       <button id="btnPrev" type="button" disabled title="Frase anterior">← Anterior</button>
       <button class="primary" id="btnPlay" type="button" disabled>▶ Reproduzir</button>
       <button id="btnPause" type="button" disabled>Ⅱ Pausar</button>
@@ -264,6 +329,62 @@
   </section>
   <p class="privacy">A limpeza automática analisa cabeçalhos e rodapés por repetição e posição; revise a lista de linhas ignoradas em documentos com diagramação incomum. O texto é tratado no seu navegador. PDFs dependem do carregamento da biblioteca PDF.js pela internet; vozes e sua disponibilidade dependem do navegador e do sistema. PDFs digitalizados como imagem exigem OCR, não incluído nesta versão. Resumos e questões são gerados pelo Claude a partir do texto da etapa 1; confira sempre com o material original.</p>
 </main>
+<div id="book" class="book" hidden role="dialog" aria-modal="true" aria-labelledby="bkTitle">
+  <div class="book-head" id="bkHead" aria-hidden="true"></div>
+  <div class="book-stage" id="bkStage" tabindex="-1"><div class="book-flow" id="bkFlow" lang="pt-BR"></div></div>
+  <div class="book-foot">
+    <span id="bkPage">Página 1 de 1</span>
+    <button type="button" id="bkMini" class="book-mini" aria-label="Reproduzir">▶</button>
+    <span id="bkLeft"></span>
+  </div>
+  <div class="book-top">
+    <button type="button" id="bkClose" aria-label="Fechar o modo leitura" title="Fechar">✕</button>
+    <button type="button" id="bkTocBtn" aria-label="Sumário" title="Sumário">☰</button>
+    <div class="book-title" id="bkTitle">Texto de estudo</div>
+    <button type="button" id="bkFull" aria-label="Tela cheia" title="Tela cheia">⛶</button>
+    <button type="button" id="bkSetBtn" aria-label="Aparência do texto" title="Aparência"><span style="font-family:Georgia,serif">Aa</span></button>
+  </div>
+  <div class="book-panel">
+    <div class="bk-scrub"><input type="range" id="bkScrub" min="1" max="1" value="1" aria-label="Ir para a página"><span id="bkScrubLabel"></span></div>
+    <div class="bk-controls">
+      <button type="button" id="bkSlower" aria-label="Diminuir velocidade">−</button>
+      <span class="bk-speed" id="bkSpeed">1.0x</span>
+      <button type="button" id="bkFaster" aria-label="Aumentar velocidade">+</button>
+      <span class="bk-sep"></span>
+      <button type="button" id="bkPrev" aria-label="Frase anterior">⏮</button>
+      <button type="button" id="bkPlay" class="bk-play" aria-label="Reproduzir">▶</button>
+      <button type="button" id="bkNext" aria-label="Próxima frase">⏭</button>
+    </div>
+    <p class="bk-tip">Toque nas laterais ou deslize para virar a página • segure uma frase para ouvir a partir dela</p>
+  </div>
+  <div class="book-sheet" id="bkSettings" hidden>
+    <div class="bk-row"><span>Fonte</span><div class="bk-seg">
+      <button type="button" data-set="font" data-value="literata" style="font-family:Literata,Georgia,serif">Literata</button>
+      <button type="button" data-set="font" data-value="georgia" style="font-family:Georgia,serif">Georgia</button>
+      <button type="button" data-set="font" data-value="sans" style="font-family:system-ui,sans-serif">Sem serifa</button></div></div>
+    <div class="bk-row"><span>Tamanho</span><div class="bk-seg">
+      <button type="button" data-size="-1" aria-label="Diminuir fonte">A−</button><strong id="bkSizeVal">20</strong>
+      <button type="button" data-size="1" aria-label="Aumentar fonte" style="font-size:1.05rem">A+</button></div></div>
+    <div class="bk-row"><span>Espaçamento</span><div class="bk-seg">
+      <button type="button" data-set="lh" data-value="compacto">Compacto</button>
+      <button type="button" data-set="lh" data-value="normal">Normal</button>
+      <button type="button" data-set="lh" data-value="amplo">Amplo</button></div></div>
+    <div class="bk-row"><span>Margens</span><div class="bk-seg">
+      <button type="button" data-set="margin" data-value="estreita">Estreitas</button>
+      <button type="button" data-set="margin" data-value="normal">Normais</button>
+      <button type="button" data-set="margin" data-value="larga">Largas</button></div></div>
+    <div class="bk-row"><span>Alinhamento</span><div class="bk-seg">
+      <button type="button" data-set="align" data-value="justify">Justificado</button>
+      <button type="button" data-set="align" data-value="left">À esquerda</button></div></div>
+    <div class="bk-row"><span>Tema</span><div class="bk-themes">
+      <button type="button" data-set="theme" data-value="branco" aria-label="Branco">Aa</button>
+      <button type="button" data-set="theme" data-value="sepia" aria-label="Sépia">Aa</button>
+      <button type="button" data-set="theme" data-value="escuro" aria-label="Escuro">Aa</button>
+      <button type="button" data-set="theme" data-value="preto" aria-label="Preto">Aa</button></div></div>
+  </div>
+  <div class="book-sheet left" id="bkToc" hidden><strong>Sumário</strong><ul id="bkTocList"></ul></div>
+  <div class="book-toast" id="bkToast" role="status" aria-live="polite"></div>
+</div>
 <script>
 (() => {
   'use strict';
@@ -317,6 +438,10 @@
     session: 0, repeatLeft: 1, currentUtterance: null, importJob: 0,
     searchIndex: -1, fileName: '', pdfPages: null, importedPdfText: ''
   };
+
+  // Ganchos usados pelo modo leitura (definidos mais abaixo).
+  const hooks = { active: null, controls: null };
+  const bookUI = { open: false };
 
   function status(message, error = false) {
     els.statusMsg.textContent = message;
@@ -416,23 +541,68 @@
     if (remaining) result.push(remaining);
     return result;
   }
+  // ---------- Estrutura do texto: parágrafos e títulos ----------
+  const HEADING_WORD = /^(T[ÍI]TULO|CAP[ÍI]TULO|SE[ÇC][ÃA]O|SUBSE[ÇC][ÃA]O|LIVRO|PARTE|ANEXO|M[ÓO]DULO|UNIDADE|AULA)\s+([IVXLCDM]+|\d+|[ÚU]NIC[OA])\b/i;
+  const BLOCK_START = /^(Art\.?\s*\d|§\s*\d|Par[áa]grafo [úu]nico|[IVXLC]{1,6}\s*[-–—.)]\s|[a-z]\)\s|\d{1,3}(?:\.\d{1,3})*[.)]\s|[•▪●◦·*\-–—]\s)/;
+  const ENDS_SENTENCE = /[.!?:;…]["'”»)\]]?$/;
+  function looksLikeHeading(text) {
+    const s = text.trim();
+    if (!s || s.length > 110 || /[.,;:]$/.test(s)) return false;
+    if (HEADING_WORD.test(s) && s.length <= 90) return true;
+    const letters = s.replace(/[^A-Za-zÀ-ÖØ-öø-ÿ]/g, '');
+    return letters.length >= 4 && letters === letters.toLocaleUpperCase('pt-BR') && /[A-ZÀ-Ý]/.test(letters);
+  }
+  function joinLine(current, line) {
+    // Junta palavras hifenizadas na quebra de linha: "contro-" + "le" = "controle".
+    if (/[A-Za-zÀ-ÿ]-$/.test(current) && /^[a-zà-ÿ]/.test(line)) return current.slice(0, -1) + line;
+    return current + ' ' + line;
+  }
+  // Divide o texto em parágrafos e títulos, reconstruindo parágrafos quebrados linha a linha.
+  function splitUnits(text) {
+    const units = [];
+    for (const para of text.split(/\n\s*\n+/)) {
+      const lines = para.split('\n').map(l => l.trim()).filter(Boolean);
+      if (!lines.length) continue;
+      const lens = lines.map(l => l.length).sort((a, b) => a - b);
+      const p90 = lens[Math.floor((lens.length - 1) * .9)];
+      let cur = null;
+      const push = () => { if (cur && cur.text.trim()) units.push(cur); cur = null; };
+      lines.forEach((line, i) => {
+        const md = /^(#{1,6})\s+(.*)$/.exec(line);
+        if (md) { push(); units.push({ text: md[2].replace(/\s#+\s*$/, '').trim(), heading: true }); return; }
+        if (looksLikeHeading(line)) {
+          if (cur && cur.heading) { cur.text += ' – ' + line; return; }
+          push(); cur = { text: line, heading: true }; return;
+        }
+        if (!cur || cur.heading) { push(); cur = { text: line, heading: false }; return; }
+        const prev = lines[i - 1];
+        const brk = BLOCK_START.test(line) || (ENDS_SENTENCE.test(prev) && (prev.length < p90 * .8 || p90 > 160));
+        if (brk) { push(); cur = { text: line, heading: false }; }
+        else cur.text = joinLine(cur.text, line);
+      });
+      push();
+    }
+    return units;
+  }
   function segmentText(raw) {
-    const text = normalizeText(raw);
+    const text = normalizeText(raw).replace(/\*\*|__|`/g, '');
     if (!text) return [];
-    const paragraphs = text.split(/\n\s*\n+/);
     const segmenter = typeof Intl.Segmenter === 'function'
       ? new Intl.Segmenter('pt-BR', { granularity: 'sentence' }) : null;
     const blocks = [];
-    paragraphs.forEach((paragraph, p) => {
-      // Dentro de um parágrafo, quebras de linha do PDF não interrompem a frase.
-      const clean = paragraph.replace(/\s*\n\s*/g, ' ').replace(/\s{2,}/g, ' ').trim();
+    splitUnits(text).forEach((unit, p) => {
+      const clean = unit.text.replace(/\s{2,}/g, ' ').trim();
       if (!clean) return;
+      if (unit.heading) {
+        for (const chunk of divideLongText(clean)) blocks.push({ text: chunk, paragraph: p, heading: true });
+        return;
+      }
       const segments = segmenter
         ? [...segmenter.segment(clean)].map(part => part.segment)
         : (clean.match(/[^.!?]+(?:[.!?]+(?=\s|$)|$)/g) || [clean]);
       for (const segment of segments) {
         for (const chunk of divideLongText(segment)) {
-          blocks.push({ text: chunk, paragraph: p });
+          if (chunk) blocks.push({ text: chunk, paragraph: p });
         }
       }
     });
@@ -446,7 +616,8 @@
     for (let i = 0; i < state.blocks.length; i++) {
       const block = state.blocks[i];
       if (block.paragraph !== prevParagraph) {
-        group = document.createElement('p');
+        group = document.createElement(block.heading ? 'h3' : 'p');
+        if (block.heading) group.className = 'doc-h';
         frag.appendChild(group);
         prevParagraph = block.paragraph;
       }
@@ -479,6 +650,7 @@
     els.btnNext.disabled = !available || state.index >= state.blocks.length - 1;
     els.btnFind.disabled = !available;
     els.btnPlay.textContent = state.mode === 'paused' ? '▶ Continuar' : (state.finished ? '↻ Recomeçar' : '▶ Reproduzir');
+    hooks.controls?.();
   }
   function setActive(index, shouldScroll = true) {
     state.activeEl?.classList.remove('active');
@@ -498,6 +670,7 @@
     } else {
       state.activeEl = null;
     }
+    hooks.active?.(index);
     progress();
   }
   function cancelSession() {
@@ -638,7 +811,7 @@
     }
   });
   document.addEventListener('keydown', event => {
-    if (event.altKey || event.ctrlKey || event.metaKey || event.repeat) return;
+    if (bookUI.open || event.altKey || event.ctrlKey || event.metaKey || event.repeat) return;
     const tag = event.target.tagName;
     if (['INPUT','TEXTAREA','SELECT','BUTTON'].includes(tag) || event.target.isContentEditable || event.target.matches?.('.sentence')) return;
     if (event.code === 'Space' && state.blocks.length) {
@@ -674,26 +847,35 @@
   // evitando descartar tópicos repetidos que apareçam no corpo do documento.
   function extractPageLines(items, view = null) {
     const lines = [];
-    let buffer = '';
-    let yCurrent = null;
-    let ratioCurrent = null;
+    let buffer = '', yCurrent = null, ratioCurrent = null, xMin = Infinity, xMax = -Infinity, hMax = 0;
     const top = Array.isArray(view) && view.length >= 4 ? Number(view[3]) : null;
     const bottom = Array.isArray(view) && view.length >= 4 ? Number(view[1]) : null;
     const height = top !== null && bottom !== null ? top - bottom : null;
     function flush() {
       const line = buffer.replace(/\s+/g, ' ').trim();
-      if (line) lines.push({ text: line, ratio: ratioCurrent });
-      buffer = ''; yCurrent = null; ratioCurrent = null;
+      if (line) lines.push({
+        text: line, ratio: ratioCurrent, y: yCurrent,
+        x: Number.isFinite(xMin) ? xMin : null, right: Number.isFinite(xMax) ? xMax : null, h: hMax || null
+      });
+      buffer = ''; yCurrent = null; ratioCurrent = null; xMin = Infinity; xMax = -Infinity; hMax = 0;
     }
     for (const item of items) {
       if (typeof item.str !== 'string') continue;
       const value = item.str;
-      const y = Array.isArray(item.transform) && Number.isFinite(item.transform[5])
-        ? item.transform[5] : null;
+      const t = Array.isArray(item.transform) ? item.transform : null;
+      const y = t && Number.isFinite(t[5]) ? t[5] : null;
+      const x = t && Number.isFinite(t[4]) ? t[4] : null;
       const ratio = height && y !== null ? (top - y) / height : null;
       // Alguns PDFs não emitem hasEOL; nesse caso, usamos as coordenadas verticais.
       if (buffer && y !== null && yCurrent !== null && Math.abs(y - yCurrent) > 3) flush();
       if (value) buffer += (buffer && !/\s$/.test(buffer) && !/^\s/.test(value) ? ' ' : '') + value;
+      if (value.trim() && x !== null) {
+        xMin = Math.min(xMin, x);
+        const w = Number(item.width);
+        xMax = Math.max(xMax, x + (Number.isFinite(w) ? w : 0));
+        const h = Number(item.height) || (t ? Math.hypot(t[2], t[3]) : 0);
+        if (h > hMax) hMax = h;
+      }
       if (yCurrent === null && y !== null) { yCurrent = y; ratioCurrent = ratio; }
       if (item.hasEOL) flush();
     }
@@ -705,8 +887,52 @@
       const zone = ratio !== null && ratio >= 0 && ratio <= 1
         ? ratio <= .16 ? 'top' : ratio >= .84 ? 'bottom' : 'body'
         : index < 2 ? 'top' : index >= lines.length - 2 ? 'bottom' : 'body';
-      return { text: line.text, zone };
+      return { ...line, zone };
     });
+  }
+
+  // Remonta parágrafos contínuos do PDF (inclusive os que atravessam páginas) e marca títulos.
+  function reflowPdf(pages) {
+    const all = pages.flatMap((lines, page) => lines.map(line => ({ ...line, page })));
+    if (!all.length) return '';
+    const median = arr => { const a = arr.filter(Number.isFinite).sort((x, y) => x - y); return a.length ? a[Math.floor(a.length / 2)] : null; };
+    const pct = (arr, q) => { const a = arr.filter(Number.isFinite).sort((x, y) => x - y); return a.length ? a[Math.floor((a.length - 1) * q)] : null; };
+    const gaps = [];
+    for (let i = 1; i < all.length; i++) {
+      const a = all[i - 1], b = all[i];
+      if (a.page === b.page && Number.isFinite(a.y) && Number.isFinite(b.y)) { const g = a.y - b.y; if (g > 0 && g < 120) gaps.push(g); }
+    }
+    const gap = median(gaps), hMed = median(all.map(l => l.h));
+    const left = median(all.map(l => l.x)), maxRight = pct(all.map(l => l.right), .9);
+    const width = left !== null && maxRight !== null ? maxRight - left : null;
+    const isHeading = l => !isPageMarker(l.text) && (looksLikeHeading(l.text)
+      || (hMed && l.h && l.h > hMed * 1.18 && l.text.length <= 120 && !/[.,;]$/.test(l.text)));
+    const out = [];
+    let cur = null;
+    const push = () => { if (cur && cur.text.trim()) out.push((cur.heading ? '## ' : '') + cur.text.trim()); cur = null; };
+    all.forEach((line, i) => {
+      const heading = isHeading(line);
+      if (!cur) { cur = { text: line.text, heading }; return; }
+      const prev = all[i - 1];
+      let brk;
+      if (heading || cur.heading) {
+        const close = line.page === prev.page && (!gap || (prev.y - line.y) < gap * 1.9);
+        if (heading && cur.heading && close) { cur.text += ' – ' + line.text; return; }
+        brk = true;
+      } else if (line.page !== prev.page) {
+        brk = ENDS_SENTENCE.test(prev.text) && (BLOCK_START.test(line.text) || /^[A-ZÀ-Ý"“]/.test(line.text));
+      } else {
+        const g = Number.isFinite(prev.y) && Number.isFinite(line.y) ? prev.y - line.y : null;
+        brk = (gap && g !== null && g > gap * 1.45)
+          || (BLOCK_START.test(line.text) && ENDS_SENTENCE.test(prev.text))
+          || (ENDS_SENTENCE.test(prev.text) && width && Number.isFinite(prev.right) && prev.right < left + width * .82)
+          || (ENDS_SENTENCE.test(prev.text) && hMed && Number.isFinite(line.x) && line.x > left + hMed * 1.2);
+      }
+      if (brk) { push(); cur = { text: line.text, heading }; }
+      else cur.text = joinLine(cur.text, line.text);
+    });
+    push();
+    return out.join('\n\n');
   }
 
   function marginKey(text) {
@@ -746,11 +972,11 @@
           isPageMarker(line.text) || repeated.has(line.zone + ':' + marginKey(line.text))
         );
         if (enabled && eligible) ignored.push({ page: i + 1, text: line.text });
-        else kept.push(line.text);
+        else kept.push(line);
       }
-      return kept.join('\n');
+      return kept;
     });
-    return { text: result.join('\n\n').trim(), ignored };
+    return { text: reflowPdf(result), ignored };
   }
   function displayPdfCleanReport(ignored, enabled) {
     els.removedDetails.hidden = !enabled || ignored.length === 0;
@@ -853,7 +1079,7 @@
       const cleanNote = result.pdfPages && els.skipPdfHeaders.checked ? ` ${result.ignored.length} linhas de cabeçalho/rodapé ignoradas.` : '';
       setBusy(false);
       prepare(); // processa automaticamente
-      if (state.blocks.length) status(`Arquivo “${file.name}” pronto: ${state.blocks.length} frases.${cleanNote} Toque em Reproduzir ou numa frase.`);
+      if (state.blocks.length) status(`Arquivo “${file.name}” pronto: ${state.blocks.length} frases.${cleanNote} Toque em 📖 Ler como livro ou em Reproduzir.`);
     } catch (error) {
       if (job === state.importJob) status('Erro na importação: ' + (error.message || 'arquivo inválido.'), true);
       console.error('Erro na importação:', error);
@@ -1241,6 +1467,315 @@ ${text}
       if (handle) { try { handleFile(await handle.getFile()); } catch (err) { console.warn(err); } }
     });
   }
+
+  // ===================== Modo leitura estilo Kindle =====================
+  const bk = {
+    root: $('book'), stage: $('bkStage'), flow: $('bkFlow'), head: $('bkHead'), title: $('bkTitle'),
+    pageLabel: $('bkPage'), left: $('bkLeft'), mini: $('bkMini'), play: $('bkPlay'), scrub: $('bkScrub'),
+    scrubLabel: $('bkScrubLabel'), speed: $('bkSpeed'), settingsSheet: $('bkSettings'), tocSheet: $('bkToc'),
+    tocList: $('bkTocList'), toastEl: $('bkToast'), sizeVal: $('bkSizeVal'), fullBtn: $('bkFull'),
+    open: false, builtFor: null, spans: [], endEl: null, spanPages: [], page: 0, total: 1, stride: 1,
+    activeSpan: null, wordsFrom: [], headings: [], key: '', pushedHash: false, longPressed: false,
+    pressTimer: null, suppressUntil: 0, wheelAt: 0, toastTimer: null
+  };
+  const BK_FONTS = { literata: "'Literata', Georgia, 'Times New Roman', serif", georgia: "Georgia, 'Iowan Old Style', 'Palatino Linotype', serif", sans: "system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif" };
+  const BK_LH = { compacto: 1.45, normal: 1.65, amplo: 1.9 };
+  const BK_MARGIN = { estreita: 14, normal: 28, larga: 56 };
+  bk.settings = Object.assign({
+    font: 'literata', size: window.innerWidth < 600 ? 19 : 21, lh: 'normal', margin: 'normal', align: 'justify',
+    theme: document.documentElement.dataset.theme === 'dark' ? 'preto' : 'branco'
+  }, (() => { try { return JSON.parse(loadSetting('book', '{}')) || {}; } catch (_) { return {}; } })());
+
+  function bkToast(message, ms = 2200) {
+    bk.toastEl.textContent = message;
+    bk.toastEl.classList.add('show');
+    clearTimeout(bk.toastTimer);
+    bk.toastTimer = setTimeout(() => bk.toastEl.classList.remove('show'), ms);
+  }
+  function bkApplySettings() {
+    const s = bk.settings;
+    bk.root.style.setProperty('--bk-font', BK_FONTS[s.font] || BK_FONTS.literata);
+    bk.root.style.setProperty('--bk-size', s.size + 'px');
+    bk.root.style.setProperty('--bk-lh', String(BK_LH[s.lh] || 1.65));
+    bk.root.style.setProperty('--bk-align', s.align === 'left' ? 'left' : 'justify');
+    bk.root.dataset.bkTheme = s.theme;
+    bk.sizeVal.textContent = s.size;
+    bk.settingsSheet.querySelectorAll('[data-set]').forEach(b => b.setAttribute('aria-pressed', String(s[b.dataset.set] === b.dataset.value)));
+    saveSetting('book', JSON.stringify(s));
+  }
+  function hashText(text) { let h = 5381; for (let i = 0; i < text.length; i++) h = ((h << 5) + h + text.charCodeAt(i)) | 0; return (h >>> 0).toString(36); }
+
+  function bkBuild() {
+    const frag = document.createDocumentFragment();
+    const blocks = state.blocks;
+    bk.spans = new Array(blocks.length); bk.headings = [];
+    let group = null, prevPara = -1, afterHeading = true;
+    blocks.forEach((b, i) => {
+      if (b.paragraph !== prevPara) {
+        group = document.createElement(b.heading ? 'h2' : 'p');
+        if (!b.heading && afterHeading) group.className = 'first';
+        afterHeading = !!b.heading;
+        if (b.heading) bk.headings.push({ index: i, text: b.text });
+        frag.append(group); prevPara = b.paragraph;
+      } else if (b.heading && bk.headings.length) bk.headings[bk.headings.length - 1].text += ' ' + b.text;
+      const span = document.createElement('span');
+      span.className = 's'; span.dataset.i = String(i); span.textContent = b.text + ' ';
+      group.append(span); bk.spans[i] = span;
+    });
+    bk.endEl = document.createElement('p'); bk.endEl.className = 'end'; bk.endEl.textContent = '— FIM —';
+    frag.append(bk.endEl);
+    bk.flow.replaceChildren(frag);
+    bk.wordsFrom = new Array(blocks.length + 1).fill(0);
+    for (let i = blocks.length - 1; i >= 0; i--) bk.wordsFrom[i] = bk.wordsFrom[i + 1] + (blocks[i].text.match(/\S+/g) || []).length;
+    bk.key = hashText(blocks.length + '|' + blocks.slice(0, 12).map(b => b.text).join(' '));
+    bk.builtFor = blocks; bk.activeSpan = null; bk.page = 0;
+  }
+  function bkMeasure() {
+    const margin = BK_MARGIN[bk.settings.margin] || 28;
+    const avail = Math.max(240, window.innerWidth - 2 * margin);
+    const cols = avail >= 980 ? 2 : 1; // telas largas: duas páginas lado a lado
+    const width = Math.floor(cols === 2 ? Math.min(avail, 1240) : Math.min(avail, 680));
+    return { cols, width, gap: cols === 2 ? 72 : 48 };
+  }
+  function bkLayout(anchorIndex) {
+    if (!bk.open) return;
+    const { cols, width, gap } = bkMeasure();
+    bk.stage.style.width = width + 'px';
+    bk.stage.style.left = Math.round((window.innerWidth - width) / 2) + 'px';
+    const f = bk.flow;
+    f.style.transition = 'none';
+    f.style.width = width + 'px'; f.style.columnCount = String(cols); f.style.columnGap = gap + 'px';
+    bk.stride = width + gap;
+    const origin = f.getBoundingClientRect().left;
+    const pageOf = el => { const r = el.getClientRects()[0] || el.getBoundingClientRect(); return Math.max(0, Math.floor((r.left - origin + 2) / bk.stride)); };
+    bk.spanPages = bk.spans.map(pageOf);
+    bk.total = pageOf(bk.endEl) + 1;
+    const target = anchorIndex != null && bk.spanPages[anchorIndex] != null ? bk.spanPages[anchorIndex] : bk.page;
+    bk.page = Math.max(0, Math.min(bk.total - 1, target));
+    bkApplyPage();
+    requestAnimationFrame(() => requestAnimationFrame(() => { f.style.transition = ''; }));
+  }
+  function bkFirstIndexOfPage(p) {
+    const pages = bk.spanPages; let lo = 0, hi = pages.length;
+    while (lo < hi) { const mid = (lo + hi) >> 1; if (pages[mid] < p) lo = mid + 1; else hi = mid; }
+    if (lo >= pages.length) return Math.max(0, pages.length - 1);
+    return pages[lo] > p ? Math.max(0, lo - 1) : lo;
+  }
+  function bkAnchor() { return state.mode !== 'idle' ? state.index : bkFirstIndexOfPage(bk.page); }
+  function formatMinutes(min) {
+    if (min < 1) return 'menos de 1 min';
+    const h = Math.floor(min / 60), m = Math.round(min % 60);
+    return h ? `${h} h ${String(m).padStart(2, '0')} min` : `${m} min`;
+  }
+  function bkApplyPage() {
+    bk.flow.style.transform = `translateX(${-bk.page * bk.stride}px)`;
+    const pct = bk.total > 1 ? Math.round(bk.page / (bk.total - 1) * 100) : 100;
+    bk.pageLabel.textContent = `Página ${bk.page + 1} de ${bk.total} • ${pct}%`;
+    const idx = bkFirstIndexOfPage(bk.page);
+    const listening = state.mode === 'playing';
+    const wpm = listening ? 160 * Number(els.speedRange.value || 1) : 200;
+    const words = bk.wordsFrom[idx] || 0;
+    bk.left.textContent = words ? `${formatMinutes(words / wpm)} ${listening ? 'de áudio' : 'restantes'}` : 'Fim';
+    bk.scrub.max = String(bk.total); bk.scrub.value = String(bk.page + 1);
+    bk.scrubLabel.textContent = `Pág. ${bk.page + 1} de ${bk.total}`;
+    if (bk.key) saveSetting('pos-' + bk.key, String(state.mode !== 'idle' ? state.index : idx));
+  }
+  function bkHighlight(index) {
+    bk.activeSpan?.classList.remove('active');
+    const span = bk.spans[index];
+    if (span) { span.classList.add('active'); bk.activeSpan = span; } else bk.activeSpan = null;
+  }
+  function bkGoToPage(p, silentEdge = false) {
+    const np = Math.max(0, Math.min(bk.total - 1, p));
+    if (np === bk.page) { if (!silentEdge) bkToast(p > bk.page ? 'Fim do documento' : 'Início do documento', 1200); return; }
+    bk.page = np; bkApplyPage();
+    if (state.mode === 'idle') {
+      // Sem áudio tocando, a leitura em voz alta passa a começar no topo da página aberta.
+      state.index = bkFirstIndexOfPage(np); state.finished = false;
+      bk.activeSpan?.classList.remove('active'); bk.activeSpan = null;
+      progress(); controls();
+    }
+  }
+  const bkTurn = delta => bkGoToPage(bk.page + delta);
+  function bkSheets(which) {
+    bk.settingsSheet.hidden = which !== 'settings';
+    bk.tocSheet.hidden = which !== 'toc';
+  }
+  function bkChrome(show) {
+    const on = show ?? !bk.root.classList.contains('chrome');
+    bk.root.classList.toggle('chrome', on);
+    if (!on) bkSheets(null);
+  }
+  function bkSyncControls() {
+    const playing = state.mode === 'playing';
+    const label = playing ? 'Ⅱ' : '▶';
+    bk.mini.textContent = label; bk.play.textContent = label;
+    bk.mini.setAttribute('aria-label', playing ? 'Pausar' : 'Reproduzir');
+    bk.play.setAttribute('aria-label', playing ? 'Pausar' : 'Reproduzir');
+    bk.speed.textContent = Number(els.speedRange.value).toFixed(1) + 'x';
+  }
+  function bkTogglePlay() { state.mode === 'playing' ? pause() : play(); }
+
+  function openBook() {
+    if (!state.blocks.length && els.textInput.value.trim()) prepare();
+    if (!state.blocks.length) { status('Cole um texto ou anexe um arquivo para abrir o modo leitura.', true); return; }
+    if (bk.builtFor !== state.blocks) bkBuild();
+    let resumed = false;
+    if (state.mode === 'idle' && state.index === 0) {
+      const saved = Number(loadSetting('pos-' + bk.key, '0'));
+      if (saved > 0 && saved < state.blocks.length) { state.index = saved; resumed = true; progress(); controls(); }
+    }
+    const name = state.fileName || bk.headings[0]?.text || 'Texto de estudo';
+    bk.title.textContent = name; bk.head.textContent = name;
+    bk.root.hidden = false; bk.open = true; bookUI.open = true;
+    document.documentElement.style.overflow = 'hidden';
+    bkChrome(false); bkApplySettings(); bkSyncControls();
+    bkLayout(state.index);
+    if (state.mode !== 'idle') bkHighlight(state.index);
+    try { if (location.hash !== '#livro') { location.hash = 'livro'; bk.pushedHash = location.hash === '#livro'; } } catch (_) { bk.pushedHash = false; }
+    bkToast(resumed ? 'Continuando de onde você parou' : 'Toque nas laterais para virar a página • no centro para o menu', resumed ? 1800 : 3200);
+    bk.stage.focus({ preventScroll: true });
+    document.fonts?.ready?.then(() => { if (bk.open) bkLayout(bkAnchor()); });
+  }
+  function closeBook(fromHash = false) {
+    if (!bk.open) return;
+    bk.open = false; bookUI.open = false; bk.root.hidden = true;
+    document.documentElement.style.overflow = '';
+    bkSheets(null);
+    if (document.fullscreenElement) document.exitFullscreen?.().catch(() => {});
+    setActive(state.index);
+    if (!fromHash && bk.pushedHash && location.hash === '#livro') { bk.pushedHash = false; try { history.back(); } catch (_) {} }
+    $('btnBook')?.focus({ preventScroll: true });
+  }
+  window.addEventListener('hashchange', () => { if (bk.open && location.hash !== '#livro') { bk.pushedHash = false; closeBook(true); } });
+
+  hooks.active = index => {
+    if (!bk.open) return;
+    bkHighlight(index);
+    const p = bk.spanPages[index];
+    if (p != null && p !== bk.page) { bk.page = p; bkApplyPage(); }
+  };
+  hooks.controls = () => { if (bk.open) { bkSyncControls(); bkApplyPage(); } syncWakeLock(); };
+
+  // Toques, gestos e teclado
+  const inChromeUi = target => target.closest('.book-top, .book-panel, .book-sheet, .book-foot button');
+  bk.root.addEventListener('click', event => {
+    if (inChromeUi(event.target)) return;
+    if (bk.longPressed) { bk.longPressed = false; return; }
+    if (Date.now() < bk.suppressUntil) return;
+    if (!bk.settingsSheet.hidden || !bk.tocSheet.hidden) { bkSheets(null); return; }
+    const x = event.clientX / window.innerWidth;
+    if (x < .28) { bkChrome(false); bkTurn(-1); }
+    else if (x > .72) { bkChrome(false); bkTurn(1); }
+    else bkChrome();
+  });
+  bk.flow.addEventListener('pointerdown', event => {
+    bk.longPressed = false;
+    const span = event.target.closest('.s');
+    if (!span) return;
+    const sx = event.clientX, sy = event.clientY;
+    clearTimeout(bk.pressTimer);
+    bk.pressTimer = setTimeout(() => {
+      bk.longPressed = true;
+      try { navigator.vibrate?.(12); } catch (_) {}
+      playFrom(Number(span.dataset.i));
+      bkToast('🔊 Lendo a partir desta frase', 1500);
+    }, 520);
+    const cancel = e => {
+      if (e.type === 'pointermove' && Math.hypot(e.clientX - sx, e.clientY - sy) < 10) return;
+      clearTimeout(bk.pressTimer);
+      bk.flow.removeEventListener('pointermove', cancel); bk.flow.removeEventListener('pointerup', cancel); bk.flow.removeEventListener('pointercancel', cancel);
+    };
+    bk.flow.addEventListener('pointermove', cancel); bk.flow.addEventListener('pointerup', cancel); bk.flow.addEventListener('pointercancel', cancel);
+  });
+  bk.flow.addEventListener('contextmenu', event => { if (event.target.closest('.s')) event.preventDefault(); });
+  let touchStart = null;
+  bk.stage.addEventListener('touchstart', e => { const t = e.touches[0]; touchStart = { x: t.clientX, y: t.clientY }; }, { passive: true });
+  bk.stage.addEventListener('touchend', e => {
+    if (!touchStart) return;
+    const t = e.changedTouches[0], dx = t.clientX - touchStart.x, dy = t.clientY - touchStart.y;
+    touchStart = null;
+    if (Math.abs(dx) > 45 && Math.abs(dx) > Math.abs(dy) * 1.3) {
+      clearTimeout(bk.pressTimer); bk.suppressUntil = Date.now() + 450;
+      bkChrome(false); bkTurn(dx < 0 ? 1 : -1);
+    }
+  }, { passive: true });
+  bk.stage.addEventListener('wheel', e => {
+    e.preventDefault();
+    const now = Date.now(); if (now - bk.wheelAt < 380) return;
+    const d = Math.abs(e.deltaX) > Math.abs(e.deltaY) ? e.deltaX : e.deltaY;
+    if (Math.abs(d) < 8) return;
+    bk.wheelAt = now; bkTurn(d > 0 ? 1 : -1);
+  }, { passive: false });
+  document.addEventListener('keydown', event => {
+    if (!bk.open || event.altKey || event.ctrlKey || event.metaKey) return;
+    if (event.target.matches?.('input, select, textarea')) return;
+    const k = event.key;
+    if (['ArrowRight', 'PageDown'].includes(k)) { event.preventDefault(); bkTurn(1); }
+    else if (['ArrowLeft', 'PageUp'].includes(k)) { event.preventDefault(); bkTurn(-1); }
+    else if (k === 'Home') { event.preventDefault(); bkGoToPage(0, true); }
+    else if (k === 'End') { event.preventDefault(); bkGoToPage(bk.total - 1, true); }
+    else if (k === ' ' && !event.repeat && !event.target.matches?.('button')) { event.preventDefault(); bkTogglePlay(); }
+    else if (k === 'Escape') { event.preventDefault(); if (!bk.settingsSheet.hidden || !bk.tocSheet.hidden) bkSheets(null); else closeBook(); }
+  });
+
+  // Barra e menus
+  $('bkClose').addEventListener('click', () => closeBook());
+  $('bkSetBtn').addEventListener('click', () => bkSheets(bk.settingsSheet.hidden ? 'settings' : null));
+  $('bkTocBtn').addEventListener('click', () => {
+    if (!bk.tocSheet.hidden) { bkSheets(null); return; }
+    bk.tocList.replaceChildren();
+    if (!bk.headings.length) bk.tocList.append(Object.assign(document.createElement('li'), { textContent: 'Nenhum título detectado neste texto.', className: 'hint' }));
+    for (const h of bk.headings) {
+      const b = document.createElement('button'); b.type = 'button';
+      b.append(Object.assign(document.createElement('span'), { textContent: h.text }), Object.assign(document.createElement('span'), { textContent: String((bk.spanPages[h.index] ?? 0) + 1) }));
+      b.addEventListener('click', () => { bkSheets(null); bkChrome(false); bkGoToPage(bk.spanPages[h.index] ?? 0, true); });
+      const li = document.createElement('li'); li.append(b); bk.tocList.append(li);
+    }
+    bkSheets('toc');
+  });
+  bk.settingsSheet.addEventListener('click', event => {
+    const b = event.target.closest('[data-set], [data-size]');
+    if (!b) return;
+    const anchor = bkAnchor();
+    if (b.dataset.size) bk.settings.size = Math.max(14, Math.min(34, bk.settings.size + Number(b.dataset.size)));
+    else bk.settings[b.dataset.set] = b.dataset.value;
+    bkApplySettings(); bkLayout(anchor);
+  });
+  if (!document.fullscreenEnabled) bk.fullBtn.hidden = true;
+  bk.fullBtn.addEventListener('click', () => {
+    if (document.fullscreenElement) document.exitFullscreen?.().catch(() => {});
+    else bk.root.requestFullscreen?.().catch(() => bkToast('Tela cheia indisponível aqui'));
+  });
+  document.addEventListener('fullscreenchange', () => { if (bk.open) setTimeout(() => bkLayout(bkAnchor()), 120); });
+  bk.mini.addEventListener('click', bkTogglePlay);
+  bk.play.addEventListener('click', bkTogglePlay);
+  $('bkPrev').addEventListener('click', () => moveTo(state.index - 1));
+  $('bkNext').addEventListener('click', () => moveTo(state.index + 1));
+  $('bkSlower').addEventListener('click', () => { applySpeed(Number(els.speedRange.value) - .1); bkSyncControls(); });
+  $('bkFaster').addEventListener('click', () => { applySpeed(Number(els.speedRange.value) + .1); bkSyncControls(); });
+  bk.scrub.addEventListener('input', () => { bk.scrubLabel.textContent = `Pág. ${bk.scrub.value} de ${bk.total}`; });
+  bk.scrub.addEventListener('change', () => bkGoToPage(Number(bk.scrub.value) - 1, true));
+  let resizeTimer = null;
+  window.addEventListener('resize', () => {
+    if (!bk.open) return;
+    const anchor = bkAnchor();
+    clearTimeout(resizeTimer); resizeTimer = setTimeout(() => bkLayout(anchor), 160);
+  });
+  $('btnBook').addEventListener('click', openBook);
+
+  // Mantém a tela acesa enquanto o áudio toca (quando o navegador permite).
+  let wakeLock = null;
+  async function syncWakeLock() {
+    const want = state.mode === 'playing' && document.visibilityState === 'visible';
+    try {
+      if (want && !wakeLock && navigator.wakeLock) {
+        wakeLock = await navigator.wakeLock.request('screen');
+        wakeLock.addEventListener?.('release', () => { wakeLock = null; });
+      } else if (!want && wakeLock) { const lock = wakeLock; wakeLock = null; await lock.release(); }
+    } catch (_) { wakeLock = null; }
+  }
+  document.addEventListener('visibilitychange', syncWakeLock);
 
   progress(); controls();
   if (!hasSpeech) status('Este navegador não oferece síntese de voz; tente Chrome ou Edge atualizado.', true);

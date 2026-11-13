@@ -1,7 +1,7 @@
 {
   "name": "Leitor de Estudo Ativo",
   "short_name": "Leitor Ativo",
-  "description": "Leitura em voz alta com destaque de frases, limpeza de PDFs e revisão pelo Método I-L-E.",
+  "description": "Leitura estilo Kindle com áudio, limpeza de PDFs e revisão pelo Método I-L-E.",
   "lang": "pt-BR",
   "id": "./",
   "start_url": "./",

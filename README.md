@@ -1,6 +1,6 @@
 # Leitor de Estudo Ativo
 
-App web instalável (PWA) para estudar ouvindo: leitura em voz alta com a frase em destaque, importação de PDF/TXT/Markdown com limpeza de cabeçalhos e rodapés, busca e revisão pelo **Método I-L-E** (Identificar, Localizar, Eliminar).
+App web instalável (PWA) para estudar ouvindo: modo leitura estilo Kindle (páginas, temas sépia/escuro, fonte e margens ajustáveis, sumário e retomada de onde parou), leitura em voz alta com a frase em destaque, importação de PDF/TXT/Markdown com limpeza de cabeçalhos e rodapés, busca e revisão pelo **Método I-L-E** (Identificar, Localizar, Eliminar).
 
 ## Instalar
 - **Android (Chrome):** abra o site e toque em **⬇ Instalar app** (ou ⋮ → *Instalar app*).
