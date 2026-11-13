@@ -1,0 +1,17 @@
+# Leitor de Estudo Ativo
+
+App web instalável (PWA) para estudar ouvindo: leitura em voz alta com a frase em destaque, importação de PDF/TXT/Markdown com limpeza de cabeçalhos e rodapés, busca e revisão pelo **Método I-L-E** (Identificar, Localizar, Eliminar).
+
+## Instalar
+- **Android (Chrome):** abra o site e toque em **⬇ Instalar app** (ou ⋮ → *Instalar app*).
+- **iPhone (Safari):** Compartilhar → *Adicionar à Tela de Início*.
+- **Computador (Chrome/Edge):** ícone de instalar na barra de endereço. Depois de instalado, o app aparece em *Abrir com* para PDF e TXT.
+
+## Offline
+Depois da primeira abertura, o app e o leitor de PDF (PDF.js) ficam salvos no aparelho. As vozes dependem do sistema; algumas vozes "online" do Chrome precisam de internet.
+
+## Resumo e questões I-L-E
+Na versão hospedada aqui, os botões geram um prompt pronto para colar no Claude. A geração automática dentro da página funciona na versão publicada no claude.ai.
+
+## Publicar uma atualização
+Altere os arquivos e mude `VERSION` em `sw.js` (ex.: `v3.0.1`) para os aparelhos baixarem a nova versão.

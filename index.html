@@ -1,0 +1,1250 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="color-scheme" content="light dark">
+  <meta name="theme-color" content="#174b87">
+  <meta name="description" content="Leitura em voz alta com destaque de frases e revisão pelo Método I-L-E.">
+  <link rel="manifest" href="manifest.json">
+  <link rel="icon" type="image/png" sizes="32x32" href="icons/favicon-32.png">
+  <link rel="apple-touch-icon" href="icons/apple-touch-icon.png">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-title" content="Leitor Ativo">
+  <meta name="apple-mobile-web-app-status-bar-style" content="default">
+  <title>Leitor de Estudo Ativo • Versão 3.0</title>
+  <!-- PDF.js (módulo moderno) é carregado somente ao abrir PDFs. Biblioteca e worker usam a mesma versão. -->
+  <style>
+    :root {
+      color-scheme: light;
+      --bg: #f1f5fb; --surface: #ffffff; --surface-2: #f5f7fc;
+      --border: #dbe3ee; --text: #1a2940; --muted: #5b6e88;
+      --primary: #174b87; --primary-hover: #0d3769; --on-primary: #ffffff;
+      --active: #fff0a8; --active-border: #b48a00;
+      --focus: #1479ce; --shadow: 0 12px 40px rgba(25, 48, 83, .09);
+      --reader-font: 19px;
+    }
+    :root[data-theme="dark"] {
+      color-scheme: dark;
+      --bg: #101827; --surface: #1c293d; --surface-2: #26364d;
+      --border: #3c4f69; --text: #eef4ff; --muted: #b8c8dc;
+      --primary: #90c5ff; --primary-hover: #b5daff; --on-primary: #102944;
+      --active: #664f12; --active-border: #f8d46b;
+      --focus: #83c4ff; --shadow: 0 12px 40px rgba(0, 0, 0, .18);
+    }
+    * { box-sizing: border-box; }
+    body { margin: 0; padding: clamp(12px, 3vw, 36px); background: var(--bg); color: var(--text); font: 15px/1.5 system-ui, -apple-system, "Segoe UI", sans-serif; }
+    main { max-width: 1080px; margin: 0 auto; }
+    .header { display: flex; justify-content: space-between; align-items: start; gap: 16px; margin-bottom: 19px; }
+    .eyebrow { display: inline-block; margin-bottom: 5px; color: var(--primary); font-size: .76rem; font-weight: 800; letter-spacing: .1em; text-transform: uppercase; }
+    h1 { margin: 0; font-size: clamp(1.35rem, 3vw, 2rem); line-height: 1.15; letter-spacing: -.035em; }
+    .subtitle { margin: 8px 0 0; color: var(--muted); }
+    .panel { background: var(--surface); border: 1px solid var(--border); border-radius: 16px; box-shadow: var(--shadow); padding: clamp(16px, 3vw, 25px); margin-bottom: 16px; }
+    .panel-title { margin: 0 0 15px; font-size: 1.05rem; }
+    .settings { display: grid; grid-template-columns: minmax(230px, 1.4fr) minmax(180px, 1fr) minmax(150px, .8fr); gap: 16px; }
+    .field { display: flex; flex-direction: column; gap: 7px; min-width: 0; }
+    label, .label { color: var(--text); font-weight: 700; font-size: .88rem; }
+    .hint { color: var(--muted); font-size: .79rem; }
+    input, select, textarea, button { font: inherit; }
+    input[type="file"], input[type="search"], select, textarea { width: 100%; color: var(--text); background: var(--surface); border: 1px solid var(--border); border-radius: 9px; padding: 10px 12px; }
+    textarea { min-height: 154px; resize: vertical; line-height: 1.55; }
+    input[type="range"] { width: 100%; accent-color: var(--primary); }
+    .range-label { display: flex; justify-content: space-between; gap: 10px; }
+    .mini-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; margin-top: 15px; }
+    .toolbar { display: flex; flex-wrap: wrap; gap: 9px; align-items: center; margin-top: 14px; }
+    button { border: 1px solid var(--border); color: var(--text); background: var(--surface); border-radius: 9px; padding: 10px 14px; font-weight: 650; cursor: pointer; transition: background .15s, border-color .15s; }
+    button:hover:not(:disabled) { background: var(--surface-2); border-color: var(--primary); }
+    button:disabled { opacity: .42; cursor: not-allowed; }
+    button.primary { background: var(--primary); color: var(--on-primary); border-color: var(--primary); }
+    button.primary:hover:not(:disabled) { background: var(--primary-hover); color: var(--on-primary); }
+    button:focus-visible, input:focus-visible, textarea:focus-visible, select:focus-visible, .sentence:focus-visible { outline: 3px solid var(--focus); outline-offset: 3px; }
+    .toggle { display: inline-flex; align-items: center; gap: 7px; margin: 0; font-weight: 500; color: var(--muted); cursor: pointer; }
+    .toggle input { accent-color: var(--primary); }
+    .reader-meta { display: flex; gap: 12px; justify-content: space-between; flex-wrap: wrap; margin-bottom: 10px; color: var(--muted); font-size: .86rem; }
+    .progress { width: 100%; height: 8px; background: var(--surface-2); border-radius: 10px; overflow: hidden; border: 1px solid var(--border); margin-bottom: 15px; }
+    .progress > div { height: 100%; width: 0%; background: var(--primary); transition: width .18s ease; }
+    .reader { background: var(--surface-2); border: 1px solid var(--border); border-radius: 12px; height: min(56vh, 490px); min-height: 240px; padding: 16px 20px; overflow-y: auto; font-size: var(--reader-font); line-height: 1.95; overscroll-behavior: contain; }
+    .reader p { margin: 0 0 1.1em; }
+    .sentence { display: inline; padding: 2px 3px; border-radius: 4px; cursor: pointer; -webkit-box-decoration-break: clone; box-decoration-break: clone; }
+    .sentence:hover { background: color-mix(in srgb, var(--primary) 14%, transparent); }
+    .sentence.active { background: var(--active); outline: 1px solid var(--active-border); }
+    .sentence.found:not(.active) { text-decoration: underline; text-decoration-thickness: 2px; text-decoration-color: var(--primary); }
+    .placeholder { color: var(--muted); font-style: italic; }
+    .search-row { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+    .search-row input { flex: 1; min-width: 150px; }
+    .status { margin: 14px 0 0; min-height: 22px; color: var(--muted); font-size: .88rem; }
+    .status.error { color: #b42318; }
+    :root[data-theme="dark"] .status.error { color: #ffaaa1; }
+    .privacy { color: var(--muted); font-size: .79rem; margin: 13px 2px 4px; }
+    .button-group { display: flex; gap: 8px; flex-wrap: wrap; }
+    .pdf-options { margin-top: 15px; border: 1px solid var(--border); border-radius: 10px; padding: 11px 14px; background: var(--surface-2); }
+    .pdf-options .toggle { color: var(--text); font-weight: 650; align-items: flex-start; }
+    .pdf-options .toggle input { margin-top: 5px; }
+    .pdf-options .hint { display: block; margin: 4px 0 0 23px; }
+    .removed-details { margin-top: 12px; border-top: 1px solid var(--border); padding-top: 8px; font-size: .87rem; }
+    .removed-details summary { cursor: pointer; font-weight: 650; }
+    .removed-details ul { padding-left: 22px; max-height: 140px; overflow-y: auto; }
+    .removed-details li { margin: 4px 0; }
+    .file-input-hidden { position: absolute; width: 1px; height: 1px; opacity: 0; overflow: hidden; pointer-events: none; }
+    .dropzone { display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 6px; text-align: center; min-height: 96px; padding: 14px; border: 2px dashed var(--border); border-radius: 12px; background: var(--surface-2); cursor: pointer; transition: border-color .15s, background .15s; }
+    .dropzone:hover, .dropzone.drag { border-color: var(--primary); background: color-mix(in srgb, var(--primary) 8%, var(--surface-2)); }
+    .dropzone:focus-visible { outline: 3px solid var(--focus); outline-offset: 3px; }
+    .dropzone strong { color: var(--primary); }
+    .dropzone.busy { opacity: .6; pointer-events: none; }
+    .ile-config { display: grid; grid-template-columns: 1.4fr 1fr 1fr; gap: 14px; }
+    .ile-config input[type="text"] { width: 100%; color: var(--text); background: var(--surface); border: 1px solid var(--border); border-radius: 9px; padding: 10px 12px; }
+    .ile-out { margin-top: 16px; }
+    .ile-out:empty { display: none; }
+    .card { background: var(--surface-2); border: 1px solid var(--border); border-radius: 12px; padding: 15px 17px; margin-bottom: 13px; }
+    .card h3 { margin: 0 0 8px; font-size: 1.02rem; }
+    .card h4 { margin: 12px 0 5px; font-size: .92rem; color: var(--primary); }
+    .card ul { margin: 4px 0; padding-left: 21px; }
+    .card li { margin: 3px 0; }
+    .tag { display: inline-block; font-size: .72rem; font-weight: 800; letter-spacing: .06em; text-transform: uppercase; color: var(--primary); margin-bottom: 4px; }
+    .kw { display: inline-block; padding: 2px 9px; margin: 2px 4px 2px 0; border-radius: 99px; border: 1px solid var(--border); background: var(--surface); font-size: .84rem; }
+    .scorebar { display: flex; justify-content: space-between; align-items: center; gap: 10px; flex-wrap: wrap; margin-bottom: 12px; font-weight: 700; }
+    .q-stem { font-weight: 600; margin: 4px 0 10px; white-space: pre-line; }
+    .alts { display: flex; flex-direction: column; gap: 7px; }
+    .alt { display: flex; gap: 6px; align-items: stretch; }
+    .alt-pick { flex: 1; text-align: left; font-weight: 500; display: flex; gap: 9px; }
+    .alt-pick .letter { font-weight: 800; color: var(--primary); }
+    .alt-pick.chosen { border-color: var(--primary); box-shadow: inset 0 0 0 1px var(--primary); }
+    .alt.eliminated .alt-pick { text-decoration: line-through; opacity: .5; }
+    .alt-x { padding: 0 11px; font-weight: 800; }
+    .alt.correct .alt-pick { border-color: #1f8a4c; background: color-mix(in srgb, #1f8a4c 14%, var(--surface)); }
+    .alt.wrong .alt-pick { border-color: #b42318; background: color-mix(in srgb, #b42318 12%, var(--surface)); }
+    .q-actions { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 11px; }
+    .q-actions button { padding: 8px 12px; font-size: .9rem; }
+    .ile-step { margin-top: 11px; padding: 10px 13px; border-left: 4px solid var(--primary); background: var(--surface); border-radius: 0 9px 9px 0; }
+    .ile-step blockquote { margin: 6px 0; padding: 6px 10px; border-left: 3px solid var(--active-border); background: var(--active); border-radius: 0 6px 6px 0; font-style: italic; }
+    .ile-step .elim { margin: 5px 0; }
+    .verdict { font-weight: 800; }
+    .verdict.ok { color: #1f8a4c; } .verdict.bad { color: #b42318; }
+    :root[data-theme="dark"] .verdict.ok { color: #7be0a4; } :root[data-theme="dark"] .verdict.bad { color: #ffaaa1; }
+    .prompt-box { min-height: 120px; font-size: .82rem; }
+    @media (max-width: 740px) { .ile-config { grid-template-columns: 1fr; } }
+    @media (max-width: 740px) {
+      .settings { grid-template-columns: 1fr; }
+      .mini-grid { grid-template-columns: 1fr; }
+      .header { align-items: center; }
+      .reader { padding: 12px 13px; }
+      .toolbar button { flex: 1 1 auto; }
+    }
+    @media (prefers-reduced-motion: reduce) { *, *::before, *::after { transition: none !important; scroll-behavior: auto !important; } }
+  </style>
+</head>
+<body>
+<main>
+  <header class="header">
+    <div>
+      <div class="eyebrow">Estudo com áudio • v3.0</div>
+      <h1>Leitor de Estudo Ativo</h1>
+      <p class="subtitle">Ouça, acompanhe a frase em destaque e retome de onde quiser.</p>
+    </div>
+    <div class="button-group">
+      <button id="btnInstall" type="button" hidden>⬇ Instalar app</button>
+      <button id="btnTheme" type="button" aria-label="Alternar modo claro e escuro" title="Alternar tema">◐ Tema</button>
+    </div>
+  </header>
+
+  <section class="panel" aria-label="Preparação do conteúdo">
+    <h2 class="panel-title">1. Prepare o conteúdo</h2>
+    <div class="settings">
+      <div class="field">
+        <span class="label" id="fileLabel">Anexar arquivo</span>
+        <label for="fileInput" class="dropzone" id="dropZone" tabindex="0" role="button" aria-describedby="fileHint">
+          <strong>📎 Toque para escolher um arquivo</strong>
+          <span class="hint">ou arraste e solte aqui</span>
+        </label>
+        <input type="file" id="fileInput" class="file-input-hidden" aria-labelledby="fileLabel">
+        <span class="hint" id="fileHint">PDF com texto selecionável, TXT ou Markdown. O texto é processado automaticamente.</span>
+      </div>
+      <div class="field">
+        <label for="voiceSelect">Voz da leitura</label>
+        <select id="voiceSelect" aria-describedby="voiceHint"><option value="">Carregando vozes…</option></select>
+        <span class="hint" id="voiceHint">Dê preferência a uma voz em português do Brasil.</span>
+      </div>
+      <div class="field">
+        <label for="speedRange">Velocidade</label>
+        <div class="range-label"><span class="hint">Ritmo da narração</span><strong id="speedVal">1.0x</strong></div>
+        <input type="range" id="speedRange" min="0.6" max="2" step="0.1" value="1" aria-label="Velocidade da leitura">
+      </div>
+    </div>
+    <div class="pdf-options">
+      <label class="toggle" for="skipPdfHeaders"><input type="checkbox" id="skipPdfHeaders" checked> Ignorar cabeçalhos, rodapés e números de página repetitivos (PDF)</label>
+      <span class="hint">Detecta textos que se repetem nas margens das páginas. Aplique antes ou depois da importação; o corpo do documento é preservado.</span>
+      <details id="removedDetails" class="removed-details" hidden>
+        <summary id="removedSummary">Linhas ignoradas</summary>
+        <ul id="removedList"></ul>
+      </details>
+    </div>
+    <div class="field" style="margin-top:16px;">
+      <label for="textInput">Texto de estudo</label>
+      <textarea id="textInput" spellcheck="false" placeholder="Cole aqui um edital, resumo, apostila, material de revisão ou texto de estudo..."></textarea>
+    </div>
+    <div class="mini-grid">
+      <div class="field">
+        <label for="fontRange">Tamanho do texto</label>
+        <div class="range-label"><span class="hint">Conforto visual</span><strong id="fontVal">19 px</strong></div>
+        <input type="range" id="fontRange" min="15" max="30" step="1" value="19">
+      </div>
+      <div class="field">
+        <label for="repeatSelect">Repetição para memorização</label>
+        <select id="repeatSelect">
+          <option value="1">Ler cada frase uma vez</option>
+          <option value="2">Repetir cada frase 2 vezes</option>
+          <option value="3">Repetir cada frase 3 vezes</option>
+        </select>
+      </div>
+    </div>
+    <div class="toolbar">
+      <button class="primary" id="btnPrepare" type="button">✓ Processar texto</button>
+      <span class="hint">Após processar, clique numa frase para ouvir a partir dela.</span>
+    </div>
+  </section>
+
+  <section class="panel" aria-label="Leitor e controles de áudio">
+    <h2 class="panel-title">2. Acompanhe a leitura</h2>
+    <div class="reader-meta">
+      <strong id="positionLabel">Nenhum texto processado</strong>
+      <span id="countLabel">0 frases • 0%</span>
+    </div>
+    <div class="progress" role="progressbar" aria-label="Progresso de leitura" aria-valuemin="0" aria-valuemax="100" aria-valuenow="0" id="progressTrack"><div id="progressFill"></div></div>
+    <div class="reader" id="readerView" aria-label="Texto com acompanhamento de leitura" tabindex="0">
+      <p class="placeholder">O conteúdo processado aparecerá aqui. Clique numa frase para começar por ela.</p>
+    </div>
+    <div class="toolbar" role="group" aria-label="Controles de reprodução">
+      <button id="btnPrev" type="button" disabled title="Frase anterior">← Anterior</button>
+      <button class="primary" id="btnPlay" type="button" disabled>▶ Reproduzir</button>
+      <button id="btnPause" type="button" disabled>Ⅱ Pausar</button>
+      <button id="btnStop" type="button" disabled>■ Parar</button>
+      <button id="btnNext" type="button" disabled title="Próxima frase">Próxima →</button>
+    </div>
+    <div class="mini-grid">
+      <div class="field">
+        <label for="searchInput">Localizar uma expressão</label>
+        <div class="search-row">
+          <input type="search" id="searchInput" placeholder="Ex.: controle externo" autocomplete="off">
+          <button id="btnFind" type="button" disabled>Buscar</button>
+        </div>
+      </div>
+      <div class="field">
+        <label class="label">Acessibilidade</label>
+        <span class="hint">Atalhos fora dos campos: <strong>Espaço</strong> (reproduzir/pausar), <strong>←</strong> e <strong>→</strong> (frases).</span>
+      </div>
+    </div>
+    <p id="statusMsg" class="status" role="status" aria-live="polite">Aguardando texto ou arquivo…</p>
+  </section>
+  <section class="panel" aria-label="Revisão com o Método I-L-E">
+    <h2 class="panel-title">3. Revise com o Método I-L-E</h2>
+    <p class="hint" style="margin-top:-8px;">Gera um resumo e questões de prova a partir do texto acima. Em cada questão: <strong>I</strong>dentifique o que o enunciado pede, <strong>L</strong>ocalize o trecho no material e <strong>E</strong>limine as alternativas erradas.</p>
+    <div class="ile-config">
+      <div class="field">
+        <label for="ileFocus">Tema ou foco (opcional)</label>
+        <input type="text" id="ileFocus" placeholder="Ex.: competências do TCE-SP, licitações…">
+      </div>
+      <div class="field">
+        <label for="ileCount">Quantidade de questões</label>
+        <select id="ileCount"><option value="5">5 questões</option><option value="10" selected>10 questões</option><option value="15">15 questões</option></select>
+      </div>
+      <div class="field">
+        <label for="ileStyle">Estilo</label>
+        <select id="ileStyle"><option value="multipla">Múltipla escolha (A–E)</option><option value="ce">Certo ou Errado</option></select>
+      </div>
+    </div>
+    <div class="toolbar">
+      <button class="primary" id="btnSummary" type="button">📝 Gerar resumo</button>
+      <button class="primary" id="btnQuestions" type="button">❓ Gerar questões I-L-E</button>
+      <button id="btnIleCancel" type="button" hidden>✕ Cancelar</button>
+      <button id="btnIleListen" type="button" hidden>🔊 Ouvir o resumo</button>
+    </div>
+    <p id="ileStatus" class="status" role="status" aria-live="polite"></p>
+    <div id="ileOut" class="ile-out"></div>
+  </section>
+  <p class="privacy">A limpeza automática analisa cabeçalhos e rodapés por repetição e posição; revise a lista de linhas ignoradas em documentos com diagramação incomum. O texto é tratado no seu navegador. PDFs dependem do carregamento da biblioteca PDF.js pela internet; vozes e sua disponibilidade dependem do navegador e do sistema. PDFs digitalizados como imagem exigem OCR, não incluído nesta versão. Resumos e questões são gerados pelo Claude a partir do texto da etapa 1; confira sempre com o material original.</p>
+</main>
+<script>
+(() => {
+  'use strict';
+  const $ = id => document.getElementById(id);
+  const els = Object.fromEntries([
+    'fileInput','fileHint','voiceSelect','speedRange','speedVal','fontRange','fontVal',
+    'repeatSelect','textInput','btnPrepare','btnPlay','btnPause','btnStop','btnPrev',
+    'btnNext','readerView','statusMsg','positionLabel','countLabel','progressTrack',
+    'progressFill','searchInput','btnFind','btnTheme',
+    'skipPdfHeaders','removedDetails','removedSummary','removedList','dropZone'
+  ].map(id => [id, $(id)]));
+
+  // Várias fontes do PDF.js: se uma falhar (versão inexistente, rede, navegador antigo), tenta a próxima.
+  // A versão "legacy" funciona melhor em Safari/iPhone e navegadores mais antigos.
+  const PDFJS_SOURCES = [
+    'https://cdn.jsdelivr.net/npm/pdfjs-dist@4.10.38/legacy/build/',
+    'https://unpkg.com/pdfjs-dist@4.10.38/legacy/build/',
+    'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/4.10.38/'
+  ];
+  let pdfjsPromise = null;
+  async function loadPdfJs() {
+    if (!pdfjsPromise) {
+      pdfjsPromise = (async () => {
+        let lastError = null;
+        for (const base of PDFJS_SOURCES) {
+          try {
+            const mod = await import(base + 'pdf.min.mjs');
+            if (!mod?.getDocument) throw new Error('módulo inválido');
+            mod.GlobalWorkerOptions.workerSrc = base + 'pdf.worker.min.mjs';
+            return mod;
+          } catch (error) { lastError = error; console.warn('PDF.js indisponível em', base, error); }
+        }
+        throw lastError || new Error('PDF.js indisponível');
+      })().catch(error => { pdfjsPromise = null; throw error; });
+    }
+    return pdfjsPromise;
+  }
+  // Decodifica TXT em UTF-8; se houver bytes inválidos, usa Windows-1252 (comum em arquivos do Windows em português).
+  async function readTextFile(file) {
+    const buffer = await file.arrayBuffer();
+    try { return new TextDecoder('utf-8', { fatal: true }).decode(buffer).replace(/^\uFEFF/, ''); }
+    catch (_) {
+      try { return new TextDecoder('windows-1252').decode(buffer); }
+      catch (__) { return new TextDecoder().decode(buffer); }
+    }
+  }
+  const synth = ('speechSynthesis' in window) ? window.speechSynthesis : null;
+  const hasSpeech = !!(synth && 'SpeechSynthesisUtterance' in window);
+  const state = {
+    blocks: [], index: 0, activeEl: null, mode: 'idle', finished: false,
+    session: 0, repeatLeft: 1, currentUtterance: null, importJob: 0,
+    searchIndex: -1, fileName: '', pdfPages: null, importedPdfText: ''
+  };
+
+  function status(message, error = false) {
+    els.statusMsg.textContent = message;
+    els.statusMsg.classList.toggle('error', !!error);
+  }
+  function setBusy(busy) {
+    els.fileInput.disabled = busy;
+    els.btnPrepare.disabled = busy;
+    els.dropZone.classList.toggle('busy', busy);
+    els.dropZone.setAttribute('aria-disabled', busy ? 'true' : 'false');
+  }
+  function loadSetting(key, fallback) {
+    try { return localStorage.getItem('leitor-ativo-' + key) ?? fallback; }
+    catch (_) { return fallback; }
+  }
+  function saveSetting(key, value) {
+    try { localStorage.setItem('leitor-ativo-' + key, String(value)); } catch (_) {}
+  }
+  function setTheme(theme) {
+    const applied = theme === 'dark' ? 'dark' : 'light';
+    document.documentElement.dataset.theme = applied;
+    els.btnTheme.textContent = applied === 'dark' ? '☀ Tema claro' : '◐ Tema escuro';
+    saveSetting('theme', applied);
+  }
+  const savedTheme = loadSetting('theme', window.matchMedia?.('(prefers-color-scheme: dark)').matches ? 'dark' : 'light');
+  setTheme(savedTheme);
+  els.btnTheme.addEventListener('click', () => setTheme(document.documentElement.dataset.theme === 'dark' ? 'light' : 'dark'));
+
+  function applyFont(value) {
+    const font = Math.min(30, Math.max(15, Number(value) || 19));
+    els.fontRange.value = String(font);
+    els.fontVal.textContent = font + ' px';
+    document.documentElement.style.setProperty('--reader-font', font + 'px');
+    saveSetting('font', font);
+  }
+  function applySpeed(value) {
+    const speed = Math.min(2, Math.max(.6, Number(value) || 1));
+    els.speedRange.value = String(speed);
+    els.speedVal.textContent = speed.toFixed(1) + 'x';
+    saveSetting('speed', speed);
+  }
+  applyFont(loadSetting('font', '19'));
+  applySpeed(loadSetting('speed', '1'));
+  els.fontRange.addEventListener('input', e => applyFont(e.target.value));
+  els.speedRange.addEventListener('input', e => applySpeed(e.target.value));
+  const repeatSaved = loadSetting('repeat', '1');
+  if (['1','2','3'].includes(repeatSaved)) els.repeatSelect.value = repeatSaved;
+  els.repeatSelect.addEventListener('change', () => saveSetting('repeat', els.repeatSelect.value));
+
+  // As vozes são carregadas assincronamente em muitos navegadores.
+  function voiceKey(voice) { return [voice.voiceURI, voice.lang, voice.name].join('||'); }
+  function populateVoices() {
+    if (!hasSpeech) {
+      els.voiceSelect.innerHTML = '<option value="">Síntese de voz não suportada</option>';
+      return;
+    }
+    const voices = synth.getVoices();
+    const current = els.voiceSelect.value || loadSetting('voice', '');
+    const ordered = [...voices].sort((a, b) => {
+      const priority = v => /^pt-BR$/i.test(v.lang) ? 0 : /^pt(-|$)/i.test(v.lang) ? 1 : 2;
+      return priority(a) - priority(b) || a.name.localeCompare(b.name, 'pt-BR');
+    });
+    els.voiceSelect.replaceChildren();
+    if (!ordered.length) {
+      const option = new Option('Voz automática do navegador', '');
+      els.voiceSelect.add(option);
+      return;
+    }
+    for (const voice of ordered) {
+      const option = new Option(`${voice.name} (${voice.lang})${voice.localService ? ' • dispositivo' : ''}`, voiceKey(voice));
+      els.voiceSelect.add(option);
+    }
+    const found = ordered.some(v => voiceKey(v) === current);
+    els.voiceSelect.value = found ? current : voiceKey(ordered[0]);
+  }
+  populateVoices();
+  if (hasSpeech) {
+    synth.addEventListener?.('voiceschanged', populateVoices);
+    // Compatibilidade com versões que não implementam addEventListener.
+    if (!synth.addEventListener) synth.onvoiceschanged = populateVoices;
+  }
+  els.voiceSelect.addEventListener('change', () => saveSetting('voice', els.voiceSelect.value));
+
+  function normalizeText(raw) {
+    return raw.replace(/\r\n?/g, '\n').replace(/\u00AD/g, '')
+      .replace(/[\t\u00A0]+/g, ' ').replace(/[ ]{2,}/g, ' ').trim();
+  }
+  function divideLongText(text, maxChars = 240) {
+    const result = [];
+    let remaining = text.trim();
+    while (remaining.length > maxChars) {
+      let cut = remaining.lastIndexOf(' ', maxChars);
+      if (cut < Math.floor(maxChars * .5)) cut = maxChars;
+      result.push(remaining.slice(0, cut).trim());
+      remaining = remaining.slice(cut).trim();
+    }
+    if (remaining) result.push(remaining);
+    return result;
+  }
+  function segmentText(raw) {
+    const text = normalizeText(raw);
+    if (!text) return [];
+    const paragraphs = text.split(/\n\s*\n+/);
+    const segmenter = typeof Intl.Segmenter === 'function'
+      ? new Intl.Segmenter('pt-BR', { granularity: 'sentence' }) : null;
+    const blocks = [];
+    paragraphs.forEach((paragraph, p) => {
+      // Dentro de um parágrafo, quebras de linha do PDF não interrompem a frase.
+      const clean = paragraph.replace(/\s*\n\s*/g, ' ').replace(/\s{2,}/g, ' ').trim();
+      if (!clean) return;
+      const segments = segmenter
+        ? [...segmenter.segment(clean)].map(part => part.segment)
+        : (clean.match(/[^.!?]+(?:[.!?]+(?=\s|$)|$)/g) || [clean]);
+      for (const segment of segments) {
+        for (const chunk of divideLongText(segment)) {
+          blocks.push({ text: chunk, paragraph: p });
+        }
+      }
+    });
+    return blocks;
+  }
+
+  function buildReader() {
+    const frag = document.createDocumentFragment();
+    let group = null;
+    let prevParagraph = -1;
+    for (let i = 0; i < state.blocks.length; i++) {
+      const block = state.blocks[i];
+      if (block.paragraph !== prevParagraph) {
+        group = document.createElement('p');
+        frag.appendChild(group);
+        prevParagraph = block.paragraph;
+      }
+      const span = document.createElement('span');
+      span.className = 'sentence';
+      span.id = `sent-${i}`;
+      span.dataset.index = String(i);
+      span.tabIndex = 0;
+      span.setAttribute('role', 'button');
+      span.setAttribute('aria-label', `Ler a partir da frase ${i + 1}: ${block.text}`);
+      span.textContent = block.text + ' ';
+      group.appendChild(span);
+    }
+    els.readerView.replaceChildren(frag);
+  }
+  function progress() {
+    const total = state.blocks.length;
+    const completed = total ? (state.finished ? 100 : Math.round(state.index / total * 100)) : 0;
+    els.positionLabel.textContent = total ? `Frase ${Math.min(state.index + 1, total)} de ${total}` : 'Nenhum texto processado';
+    els.countLabel.textContent = `${total} ${total === 1 ? 'frase' : 'frases'} • ${completed}%`;
+    els.progressFill.style.width = completed + '%';
+    els.progressTrack.setAttribute('aria-valuenow', String(completed));
+  }
+  function controls() {
+    const available = state.blocks.length > 0;
+    els.btnPlay.disabled = !available || !hasSpeech || state.mode === 'playing';
+    els.btnPause.disabled = state.mode !== 'playing';
+    els.btnStop.disabled = state.mode === 'idle';
+    els.btnPrev.disabled = !available || state.index <= 0;
+    els.btnNext.disabled = !available || state.index >= state.blocks.length - 1;
+    els.btnFind.disabled = !available;
+    els.btnPlay.textContent = state.mode === 'paused' ? '▶ Continuar' : (state.finished ? '↻ Recomeçar' : '▶ Reproduzir');
+  }
+  function setActive(index, shouldScroll = true) {
+    state.activeEl?.classList.remove('active');
+    state.activeEl?.removeAttribute('aria-current');
+    const span = els.readerView.querySelector(`[data-index="${index}"]`);
+    if (span) {
+      span.classList.add('active');
+      span.setAttribute('aria-current', 'true');
+      state.activeEl = span;
+      if (shouldScroll) {
+        const area = els.readerView.getBoundingClientRect();
+        const rect = span.getBoundingClientRect();
+        if (rect.top < area.top + 24 || rect.bottom > area.bottom - 24) {
+          els.readerView.scrollTop += rect.top - area.top - area.height / 3;
+        }
+      }
+    } else {
+      state.activeEl = null;
+    }
+    progress();
+  }
+  function cancelSession() {
+    state.session++;
+    state.currentUtterance = null;
+    if (synth) {
+      try { synth.cancel(); if (synth.paused) synth.resume(); } catch (err) { console.warn(err); }
+    }
+    state.mode = 'idle';
+  }
+  function prepare() {
+    const raw = els.textInput.value;
+    if (!raw.trim()) { status('Cole algum texto ou importe um arquivo primeiro.', true); els.textInput.focus(); return; }
+    cancelSession();
+    state.blocks = segmentText(raw);
+    state.index = 0;
+    state.finished = false;
+    state.searchIndex = -1;
+    if (!state.blocks.length) { status('Não foi possível identificar frases no conteúdo.', true); return; }
+    buildReader();
+    els.readerView.scrollTop = 0;
+    setActive(0, false);
+    controls();
+    status(`${state.blocks.length} ${state.blocks.length === 1 ? 'frase preparada' : 'frases preparadas'}. Clique em Reproduzir ou numa frase para começar.`);
+  }
+  els.btnPrepare.addEventListener('click', prepare);
+
+  function chosenVoice() {
+    if (!hasSpeech) return null;
+    return synth.getVoices().find(v => voiceKey(v) === els.voiceSelect.value) || null;
+  }
+  function finishReading() {
+    state.mode = 'idle';
+    state.finished = true;
+    state.currentUtterance = null;
+    progress(); controls();
+    status('Leitura concluída. Você pode recomeçar ou escolher outra frase.');
+  }
+  function speakBlock(index, token, isRepeat = false) {
+    if (token !== state.session || state.mode !== 'playing') return;
+    if (index >= state.blocks.length) { finishReading(); return; }
+    state.index = index;
+    state.finished = false;
+    if (!isRepeat) state.repeatLeft = Number(els.repeatSelect.value) || 1;
+    setActive(index);
+    const utterance = new SpeechSynthesisUtterance(state.blocks[index].text);
+    const voice = chosenVoice();
+    if (voice) utterance.voice = voice;
+    utterance.lang = voice?.lang || 'pt-BR';
+    utterance.rate = Number(els.speedRange.value);
+    utterance.pitch = 1;
+    state.currentUtterance = utterance;
+    utterance.onstart = () => {
+      if (token === state.session && state.currentUtterance === utterance) {
+        status(`Lendo frase ${index + 1} de ${state.blocks.length}${state.repeatLeft < Number(els.repeatSelect.value) ? ' (repetição)' : ''}…`);
+      }
+    };
+    utterance.onend = () => {
+      if (token !== state.session || state.currentUtterance !== utterance || state.mode !== 'playing') return;
+      if (state.repeatLeft > 1) {
+        state.repeatLeft--;
+        setTimeout(() => speakBlock(index, token, true), 25);
+      } else {
+        setTimeout(() => speakBlock(index + 1, token), 25);
+      }
+    };
+    utterance.onerror = event => {
+      if (token !== state.session || state.currentUtterance !== utterance) return;
+      if (event.error === 'canceled' || event.error === 'interrupted') return;
+      state.mode = 'idle';
+      controls();
+      status('Falha ao reproduzir áudio (' + (event.error || 'erro desconhecido') + '). Tente outra voz ou reinicie a leitura.', true);
+    };
+    try { synth.speak(utterance); }
+    catch (err) {
+      state.mode = 'idle'; controls();
+      status('Não foi possível iniciar a voz neste navegador: ' + err.message, true);
+    }
+    controls();
+  }
+  function playFrom(index) {
+    if (!state.blocks.length) { status('Primeiro processe um texto.', true); return; }
+    if (!hasSpeech) { status('Este navegador não suporta leitura em voz alta (Web Speech API).', true); return; }
+    cancelSession();
+    const token = state.session;
+    state.index = Math.max(0, Math.min(index, state.blocks.length - 1));
+    state.mode = 'playing';
+    state.finished = false;
+    setActive(state.index);
+    controls();
+    // Pequeno atraso ajuda os navegadores a liberar o áudio anterior após cancel().
+    setTimeout(() => speakBlock(state.index, token), 45);
+  }
+  function play() {
+    if (!state.blocks.length) return;
+    if (state.mode === 'paused') {
+      try {
+        synth.resume(); state.mode = 'playing';
+        controls(); status('Leitura retomada.');
+      } catch (_) { playFrom(state.index); }
+    } else if (state.mode !== 'playing') {
+      playFrom(state.finished ? 0 : state.index);
+    }
+  }
+  function pause() {
+    if (state.mode !== 'playing') return;
+    try {
+      synth.pause(); state.mode = 'paused'; controls(); status('Leitura pausada. Clique em Continuar para retomar.');
+    } catch (err) { status('Não foi possível pausar a reprodução.', true); }
+  }
+  function stop() {
+    cancelSession(); state.finished = false;
+    controls(); progress();
+    status('Leitura interrompida. Clique em Reproduzir para continuar na frase selecionada.');
+  }
+  function moveTo(index) {
+    if (!state.blocks.length) return;
+    const clamped = Math.max(0, Math.min(index, state.blocks.length - 1));
+    if (state.mode === 'playing' || state.mode === 'paused') playFrom(clamped);
+    else {
+      state.index = clamped; state.finished = false;
+      setActive(clamped); controls();
+      status(`Frase ${clamped + 1} selecionada. Clique em Reproduzir.`);
+    }
+  }
+  els.btnPlay.addEventListener('click', play);
+  els.btnPause.addEventListener('click', pause);
+  els.btnStop.addEventListener('click', stop);
+  els.btnPrev.addEventListener('click', () => moveTo(state.index - 1));
+  els.btnNext.addEventListener('click', () => moveTo(state.index + 1));
+  els.readerView.addEventListener('click', event => {
+    const span = event.target.closest('.sentence');
+    if (span && els.readerView.contains(span)) playFrom(Number(span.dataset.index));
+  });
+  els.readerView.addEventListener('keydown', event => {
+    if ((event.key === 'Enter' || event.key === ' ') && event.target.matches('.sentence')) {
+      event.preventDefault(); playFrom(Number(event.target.dataset.index));
+    }
+  });
+  document.addEventListener('keydown', event => {
+    if (event.altKey || event.ctrlKey || event.metaKey || event.repeat) return;
+    const tag = event.target.tagName;
+    if (['INPUT','TEXTAREA','SELECT','BUTTON'].includes(tag) || event.target.isContentEditable || event.target.matches?.('.sentence')) return;
+    if (event.code === 'Space' && state.blocks.length) {
+      event.preventDefault(); state.mode === 'playing' ? pause() : play();
+    } else if (event.key === 'ArrowRight' && state.blocks.length) {
+      event.preventDefault(); moveTo(state.index + 1);
+    } else if (event.key === 'ArrowLeft' && state.blocks.length) {
+      event.preventDefault(); moveTo(state.index - 1);
+    }
+  });
+
+  function findText() {
+    const query = els.searchInput.value.trim().toLocaleLowerCase('pt-BR');
+    if (!query || !state.blocks.length) { status('Digite a expressão que deseja localizar.', true); return; }
+    const start = (state.searchIndex + 1) % state.blocks.length;
+    let found = -1;
+    for (let offset = 0; offset < state.blocks.length; offset++) {
+      const idx = (start + offset) % state.blocks.length;
+      if (state.blocks[idx].text.toLocaleLowerCase('pt-BR').includes(query)) { found = idx; break; }
+    }
+    els.readerView.querySelectorAll('.found').forEach(node => node.classList.remove('found'));
+    if (found < 0) { state.searchIndex = -1; status('Expressão não encontrada no texto.'); return; }
+    state.searchIndex = found;
+    moveTo(found);
+    els.readerView.querySelector(`[data-index="${found}"]`)?.classList.add('found');
+    status(`Expressão encontrada na frase ${found + 1}. Clique em Reproduzir para ouvir.`);
+  }
+  els.btnFind.addEventListener('click', findText);
+  els.searchInput.addEventListener('keydown', event => { if (event.key === 'Enter') { event.preventDefault(); findText(); } });
+  els.searchInput.addEventListener('input', () => { state.searchIndex = -1; });
+
+  // Preserve informações por página para excluir somente linhas de margens,
+  // evitando descartar tópicos repetidos que apareçam no corpo do documento.
+  function extractPageLines(items, view = null) {
+    const lines = [];
+    let buffer = '';
+    let yCurrent = null;
+    let ratioCurrent = null;
+    const top = Array.isArray(view) && view.length >= 4 ? Number(view[3]) : null;
+    const bottom = Array.isArray(view) && view.length >= 4 ? Number(view[1]) : null;
+    const height = top !== null && bottom !== null ? top - bottom : null;
+    function flush() {
+      const line = buffer.replace(/\s+/g, ' ').trim();
+      if (line) lines.push({ text: line, ratio: ratioCurrent });
+      buffer = ''; yCurrent = null; ratioCurrent = null;
+    }
+    for (const item of items) {
+      if (typeof item.str !== 'string') continue;
+      const value = item.str;
+      const y = Array.isArray(item.transform) && Number.isFinite(item.transform[5])
+        ? item.transform[5] : null;
+      const ratio = height && y !== null ? (top - y) / height : null;
+      // Alguns PDFs não emitem hasEOL; nesse caso, usamos as coordenadas verticais.
+      if (buffer && y !== null && yCurrent !== null && Math.abs(y - yCurrent) > 3) flush();
+      if (value) buffer += (buffer && !/\s$/.test(buffer) && !/^\s/.test(value) ? ' ' : '') + value;
+      if (yCurrent === null && y !== null) { yCurrent = y; ratioCurrent = ratio; }
+      if (item.hasEOL) flush();
+    }
+    flush();
+    return lines.map((line, index) => {
+      // Quando coordenadas não estão disponíveis, usamos só as 2 primeiras e
+      // 2 últimas linhas como margens: escolha conservadora.
+      const ratio = line.ratio;
+      const zone = ratio !== null && ratio >= 0 && ratio <= 1
+        ? ratio <= .16 ? 'top' : ratio >= .84 ? 'bottom' : 'body'
+        : index < 2 ? 'top' : index >= lines.length - 2 ? 'bottom' : 'body';
+      return { text: line.text, zone };
+    });
+  }
+
+  function marginKey(text) {
+    return text.normalize('NFKC').toLocaleLowerCase('pt-BR')
+      .replace(/\s+/g, ' ')
+      // Variações como "Página 1 de 30" e "Pág. 2 de 30".
+      .replace(/\b(p[áa]g(?:ina)?\.?|página|folha|fls?\.?)\s*(?:n[º°o]\.?\s*)?\d+(?:\s*(?:de|\/)\s*\d+)?/gi, '$1 #')
+      .replace(/[‐‑‒–—]/g, '-')
+      .trim();
+  }
+  function isPageMarker(text) {
+    const s = text.trim();
+    return /^[-–—•]?\s*\d{1,4}(?:\s*(?:\/|de)\s*\d{1,4})?\s*[-–—•]?$/.test(s)
+      || /^(?:p[áa]g(?:ina)?\.?|folha|fls?\.?)\s*(?:n[º°o]\.?)?\s*\d{1,4}(?:\s*(?:\/|de)\s*\d{1,4})?$/i.test(s);
+  }
+  function filterPdfPages(pages, enabled = true) {
+    const occurrences = new Map();
+    for (const page of pages) {
+      const seenOnPage = new Set();
+      for (const line of page.lines) {
+        if (line.zone === 'body' || line.text.length > 160 || line.text.length < 3 || isPageMarker(line.text)) continue;
+        const key = line.zone + ':' + marginKey(line.text);
+        if (!seenOnPage.has(key)) {
+          occurrences.set(key, (occurrences.get(key) || 0) + 1);
+          seenOnPage.add(key);
+        }
+      }
+    }
+    // 2 páginas: exige repetição em ambas. Documentos maiores: ao menos 3.
+    const minimum = pages.length <= 2 ? 2 : 3;
+    const repeated = new Set([...occurrences].filter(([, count]) => count >= minimum).map(([key]) => key));
+    const ignored = [];
+    const result = pages.map((page, i) => {
+      const kept = [];
+      for (const line of page.lines) {
+        const eligible = line.zone !== 'body' && (
+          isPageMarker(line.text) || repeated.has(line.zone + ':' + marginKey(line.text))
+        );
+        if (enabled && eligible) ignored.push({ page: i + 1, text: line.text });
+        else kept.push(line.text);
+      }
+      return kept.join('\n');
+    });
+    return { text: result.join('\n\n').trim(), ignored };
+  }
+  function displayPdfCleanReport(ignored, enabled) {
+    els.removedDetails.hidden = !enabled || ignored.length === 0;
+    els.removedDetails.open = false;
+    els.removedSummary.textContent = `${ignored.length} ${ignored.length === 1 ? 'linha ignorada' : 'linhas ignoradas'} — conferir`;
+    els.removedList.replaceChildren();
+    for (const line of ignored.slice(0, 30)) {
+      const li = document.createElement('li');
+      li.textContent = `Página ${line.page}: ${line.text}`;
+      els.removedList.appendChild(li);
+    }
+    if (ignored.length > 30) {
+      const li = document.createElement('li');
+      li.textContent = `…e mais ${ignored.length - 30} linhas.`;
+      els.removedList.appendChild(li);
+    }
+  }
+  function applyPdfCleanup() {
+    saveSetting('pdf-headers', els.skipPdfHeaders.checked ? 'yes' : 'no');
+    if (!state.pdfPages) return;
+    if (els.textInput.value !== state.importedPdfText) {
+      status('Preferência atualizada. Como o texto foi editado, reimporte o PDF para aplicar a limpeza sem perder suas alterações.');
+      return;
+    }
+    const cleaned = filterPdfPages(state.pdfPages, els.skipPdfHeaders.checked);
+    state.importedPdfText = cleaned.text;
+    els.textInput.value = cleaned.text;
+    displayPdfCleanReport(cleaned.ignored, els.skipPdfHeaders.checked);
+    cancelSession();
+    state.blocks = []; state.index = 0; state.finished = false; state.activeEl = null;
+    els.readerView.innerHTML = '<p class="placeholder">Texto atualizado. Clique em “Processar texto” para preparar a leitura.</p>';
+    progress(); controls();
+    status(`Limpeza ${els.skipPdfHeaders.checked ? 'ativada' : 'desativada'}. ${cleaned.ignored.length} linhas ignoradas. Clique em “Processar texto”.`);
+  }
+  els.skipPdfHeaders.checked = loadSetting('pdf-headers', 'yes') !== 'no';
+  els.skipPdfHeaders.addEventListener('change', applyPdfCleanup);
+
+  async function readFile(file, job) {
+    const name = file.name || 'arquivo';
+    const type = (file.type || '').toLowerCase();
+    let isPdf = /\.pdf$/i.test(name) || type === 'application/pdf';
+    // Alguns celulares não informam extensão/tipo: confere a assinatura "%PDF" no início do arquivo.
+    if (!isPdf) {
+      try { isPdf = new TextDecoder('ascii').decode(await file.slice(0, 5).arrayBuffer()).startsWith('%PDF'); } catch (_) {}
+    }
+    const isText = !isPdf && (/\.(txt|md|markdown|text|csv)$/i.test(name) || type.startsWith('text/') || type === '');
+    if (/\.(docx?|odt|rtf|pages)$/i.test(name)) throw new Error('Arquivos do Word não são lidos diretamente. Salve como PDF (ou TXT) e anexe novamente.');
+    if (/\.(jpe?g|png|heic|webp|gif)$/i.test(name) || type.startsWith('image/')) throw new Error('Imagens precisam de OCR, não incluído nesta versão. Use um PDF com texto selecionável.');
+    if (!isPdf && !isText) throw new Error('Formato não suportado. Use PDF, TXT ou Markdown.');
+    if (file.size > 35 * 1024 * 1024) throw new Error('Arquivo acima de 35 MB. Selecione um documento menor.');
+    if (isText) return { text: await readTextFile(file), pdfPages: null, ignored: [] };
+    let pdfjs;
+    try { pdfjs = await loadPdfJs(); }
+    catch (_) { throw new Error('Não foi possível carregar o leitor de PDF. Verifique a conexão com a internet e tente de novo.'); }
+    const data = new Uint8Array(await file.arrayBuffer());
+    if (job !== state.importJob) return null;
+    const loading = pdfjs.getDocument({ data, isEvalSupported: false });
+    let pdf;
+    try { pdf = await loading.promise; }
+    catch (error) {
+      if (error?.name === 'PasswordException') throw new Error('Este PDF está protegido por senha. Remova a senha e anexe novamente.');
+      throw new Error('Não foi possível abrir o PDF (arquivo corrompido ou incompatível).');
+    }
+    try {
+      const pages = [];
+      for (let i = 1; i <= pdf.numPages; i++) {
+        if (job !== state.importJob) return null;
+        status(`Extraindo texto do PDF… página ${i} de ${pdf.numPages}.`);
+        const page = await pdf.getPage(i);
+        const content = await page.getTextContent();
+        pages.push({ lines: extractPageLines(content.items, page.view) });
+        page.cleanup();
+      }
+      if (!pages.some(page => page.lines.length)) throw new Error('Este PDF não contém texto extraível. PDFs digitalizados precisam de OCR.');
+      const filtered = filterPdfPages(pages, els.skipPdfHeaders.checked);
+      return { text: filtered.text, pdfPages: pages, ignored: filtered.ignored };
+    } finally {
+      await pdf.destroy();
+    }
+  }
+  async function handleFile(file) {
+    if (!file) return;
+    const job = ++state.importJob;
+    setBusy(true);
+    status(`Carregando ${file.name}…`);
+    try {
+      const result = await readFile(file, job);
+      if (job !== state.importJob || result === null) return;
+      if (!result.text.trim()) throw new Error('O arquivo não contém texto legível.');
+      cancelSession();
+      state.blocks = []; state.index = 0; state.finished = false; state.activeEl = null;
+      els.textInput.value = result.text;
+      state.pdfPages = result.pdfPages;
+      state.importedPdfText = result.pdfPages ? result.text : '';
+      displayPdfCleanReport(result.ignored, !!result.pdfPages && els.skipPdfHeaders.checked);
+      els.readerView.innerHTML = '<p class="placeholder">Arquivo importado. Clique em “Processar texto” para preparar a leitura.</p>';
+      progress(); controls();
+      state.fileName = file.name;
+      els.fileHint.textContent = `Selecionado: ${file.name}`;
+      const cleanNote = result.pdfPages && els.skipPdfHeaders.checked ? ` ${result.ignored.length} linhas de cabeçalho/rodapé ignoradas.` : '';
+      setBusy(false);
+      prepare(); // processa automaticamente
+      if (state.blocks.length) status(`Arquivo “${file.name}” pronto: ${state.blocks.length} frases.${cleanNote} Toque em Reproduzir ou numa frase.`);
+    } catch (error) {
+      if (job === state.importJob) status('Erro na importação: ' + (error.message || 'arquivo inválido.'), true);
+      console.error('Erro na importação:', error);
+    } finally {
+      if (job === state.importJob) setBusy(false);
+    }
+  }
+  els.fileInput.addEventListener('change', event => {
+    const file = event.target.files?.[0];
+    // Limpa o campo para permitir escolher o mesmo arquivo novamente.
+    event.target.value = '';
+    handleFile(file);
+  });
+  els.dropZone.addEventListener('keydown', event => {
+    if (event.key === 'Enter' || event.key === ' ') { event.preventDefault(); els.fileInput.click(); }
+  });
+  ['dragenter', 'dragover'].forEach(type => els.dropZone.addEventListener(type, event => {
+    event.preventDefault(); els.dropZone.classList.add('drag');
+  }));
+  ['dragleave', 'dragend'].forEach(type => els.dropZone.addEventListener(type, () => els.dropZone.classList.remove('drag')));
+  els.dropZone.addEventListener('drop', event => {
+    event.preventDefault(); els.dropZone.classList.remove('drag');
+    handleFile(event.dataTransfer?.files?.[0]);
+  });
+  // Evita que soltar um arquivo fora da área abra o arquivo no lugar da página.
+  ['dragover', 'drop'].forEach(type => window.addEventListener(type, event => {
+    if (!els.dropZone.contains(event.target)) event.preventDefault();
+  }));
+
+
+  // ===================== Método I-L-E: resumo e questões =====================
+  const ile = {
+    out: $('ileOut'), statusEl: $('ileStatus'), focus: $('ileFocus'), count: $('ileCount'), style: $('ileStyle'),
+    btnSummary: $('btnSummary'), btnQuestions: $('btnQuestions'), btnCancel: $('btnIleCancel'), btnListen: $('btnIleListen'),
+    sample: null, ready: false, controller: null, summaryText: '', score: { answered: 0, right: 0, total: 0 }
+  };
+  const MAX_CHARS = 90000;
+  ile.count.value = loadSetting('ile-count', '10');
+  ile.style.value = loadSetting('ile-style', 'multipla');
+  ile.count.addEventListener('change', () => saveSetting('ile-count', ile.count.value));
+  ile.style.addEventListener('change', () => saveSetting('ile-style', ile.style.value));
+
+  function ileStatus(msg, error = false) { ile.statusEl.textContent = msg; ile.statusEl.classList.toggle('error', !!error); }
+  function el(tag, props = {}, ...children) {
+    const node = document.createElement(tag);
+    for (const [k, v] of Object.entries(props)) {
+      if (k === 'class') node.className = v; else if (k === 'text') node.textContent = v;
+      else if (k.startsWith('on')) node.addEventListener(k.slice(2), v); else node.setAttribute(k, v);
+    }
+    for (const c of children) if (c != null) node.append(c);
+    return node;
+  }
+  function studyText() {
+    const raw = normalizeText(els.textInput.value || '');
+    return { text: raw.slice(0, MAX_CHARS), cut: raw.length > MAX_CHARS, empty: !raw };
+  }
+  const ILE_RULES = `Você é um professor especialista em concursos públicos brasileiros (tribunais de contas, controle externo, TI). Trabalhe SOMENTE com o conteúdo do MATERIAL fornecido; não invente fatos que não estejam nele. Escreva em português do Brasil.`;
+  function summaryPrompt(text, focus) {
+    return `${ILE_RULES}
+Produza um RESUMO DE ESTUDO do material${focus ? `, com foco em: "${focus}"` : ''}.
+Responda APENAS com JSON válido, sem markdown, neste formato:
+{"titulo":"string","visao_geral":"2 a 4 frases","topicos":[{"titulo":"string","pontos":["frase curta e objetiva"]}],"palavras_chave":[{"termo":"string","definicao":"string curta"}],"pegadinhas":["ponto em que bancas costumam induzir ao erro, com a forma correta"]}
+Use de 3 a 8 tópicos, 2 a 6 pontos por tópico, até 10 palavras-chave e até 6 pegadinhas.
+
+MATERIAL:
+"""
+${text}
+"""`;
+  }
+  function questionsPrompt(text, focus, count, style) {
+    const ce = style === 'ce';
+    return `${ILE_RULES}
+Crie ${count} questões de prova${focus ? ` com foco em: "${focus}"` : ''}, no estilo ${ce ? 'CERTO ou ERRADO (Cebraspe): cada item é uma afirmação para julgar' : 'múltipla escolha com 5 alternativas (A a E) e apenas uma correta, como FCC, Vunesp e FGV'}.
+Cada questão deve ser resolvível pelo MÉTODO I-L-E:
+- I (Identificar): o comando exato da questão (ex.: "assinale a INCORRETA", "julgue o item") e as palavras-chave que guiam a busca no texto.
+- L (Localizar): um TRECHO COPIADO LITERALMENTE do material (de 1 a 2 frases, sem alterar nenhuma palavra) que sustenta a resposta.
+- E (Eliminar): para cada alternativa errada, o motivo exato do erro comparando com o trecho (troca de palavra, extrapolação, generalização, inversão de conceito, prazo ou número trocado etc.).
+Varie os comandos (correta/incorreta) e as armadilhas típicas de banca. Distribua as respostas corretas entre as letras.
+Responda APENAS com JSON válido, sem markdown, neste formato:
+{"questoes":[{"enunciado":"string","alternativas":[{"letra":"${ce ? 'C' : 'A'}","texto":"string"}],"correta":"letra","identificar":{"comando":"string","palavras_chave":["string"]},"localizar":{"trecho":"citação literal do material","explicacao":"como o trecho resolve a questão"},"eliminar":[{"letra":"letra","motivo":"string"}],"dica":"string curta sem entregar a resposta"}]}
+${ce ? 'Para Certo/Errado use exatamente alternativas [{"letra":"C","texto":"Certo"},{"letra":"E","texto":"Errado"}] e, em "eliminar", explique por que a opção errada está errada.' : 'Use letras A, B, C, D e E. Em "eliminar", inclua as 4 alternativas incorretas.'}
+
+MATERIAL:
+"""
+${text}
+"""`;
+  }
+  function parseJson(value) {
+    if (value && typeof value === 'object') return value;
+    const s = String(value || '');
+    const start = s.indexOf('{'), end = s.lastIndexOf('}');
+    if (start < 0 || end <= start) throw new Error('Resposta em formato inesperado.');
+    return JSON.parse(s.slice(start, end + 1));
+  }
+  async function ask(prompt, label) {
+    ile.controller?.abort();
+    const controller = new AbortController();
+    ile.controller = controller;
+    setIleBusy(true);
+    ileStatus(`${label}… isso pode levar alguns segundos.`);
+    try {
+      const result = await ile.sample(prompt, {
+        signal: controller.signal, modelTier: 'default',
+        onText: ({ text }) => { if (text && text !== 'Thinking...') ileStatus(`${label}… ${Math.min(99, Math.round(text.length / 60))}%`); }
+      });
+      if (controller.signal.aborted) return null;
+      return parseJson(result?.text);
+    } catch (error) {
+      if (controller.signal.aborted || error?.name === 'AbortError') { ileStatus('Geração cancelada.'); return null; }
+      if (error?.code === 'not_granted') ileStatus('Permissão não concedida para gerar conteúdo com o Claude.', true);
+      else if (error?.code === 'rate_limited') ileStatus('Muitas solicitações em pouco tempo. Aguarde um minuto e tente de novo.', true);
+      else ileStatus('Não foi possível gerar: ' + (error?.message || 'erro desconhecido') + '. Tente novamente.', true);
+      return null;
+    } finally {
+      if (ile.controller === controller) { ile.controller = null; setIleBusy(false); }
+    }
+  }
+  function setIleBusy(busy) {
+    ile.btnSummary.disabled = busy || !ile.ready;
+    ile.btnQuestions.disabled = busy || !ile.ready;
+    ile.btnCancel.hidden = !busy;
+  }
+  ile.btnCancel.addEventListener('click', () => { ile.controller?.abort(); });
+
+  function checkText() {
+    const t = studyText();
+    if (t.empty) { ileStatus('Primeiro cole um texto ou anexe um arquivo na etapa 1.', true); return null; }
+    if (t.text.length < 200) { ileStatus('O texto é curto demais para gerar um bom material (mínimo de ~200 caracteres).', true); return null; }
+    return t;
+  }
+
+  async function generateSummary() {
+    const t = checkText(); if (!t) return;
+    const data = await ask(summaryPrompt(t.text, ile.focus.value.trim()), 'Gerando resumo');
+    if (!data) return;
+    renderSummary(data);
+    ileStatus(`Resumo pronto.${t.cut ? ' Texto longo: foram usados os primeiros 90 mil caracteres.' : ''}`);
+  }
+  function renderSummary(d) {
+    const card = el('div', { class: 'card' }, el('span', { class: 'tag', text: 'Resumo' }), el('h3', { text: d.titulo || 'Resumo do material' }));
+    const speech = [d.titulo || 'Resumo'];
+    if (d.visao_geral) { card.append(el('p', { text: d.visao_geral })); speech.push(d.visao_geral); }
+    for (const t of d.topicos || []) {
+      card.append(el('h4', { text: t.titulo || '' }));
+      const ul = el('ul'); for (const p of t.pontos || []) ul.append(el('li', { text: p }));
+      card.append(ul);
+      speech.push(`${t.titulo}.`, ...(t.pontos || []));
+    }
+    if ((d.palavras_chave || []).length) {
+      card.append(el('h4', { text: 'Palavras-chave' }));
+      const ul = el('ul');
+      for (const k of d.palavras_chave) { ul.append(el('li', {}, el('strong', { text: k.termo + ': ' }), k.definicao || '')); speech.push(`${k.termo}: ${k.definicao}`); }
+      card.append(ul);
+    }
+    if ((d.pegadinhas || []).length) {
+      card.append(el('h4', { text: '⚠ Pegadinhas de prova' }));
+      const ul = el('ul'); for (const p of d.pegadinhas) { ul.append(el('li', { text: p })); }
+      card.append(ul);
+      speech.push('Pegadinhas de prova.', ...d.pegadinhas);
+    }
+    ile.summaryText = speech.filter(Boolean).map(s => /[.!?:]$/.test(s.trim()) ? s : s + '.').join('\n\n');
+    ile.btnListen.hidden = false;
+    ile.out.replaceChildren(card);
+  }
+  ile.btnListen.addEventListener('click', () => {
+    if (!ile.summaryText) return;
+    // O texto original continua salvo no campo de entrada; o leitor passa a narrar o resumo.
+    state.blocks = segmentText(ile.summaryText); state.index = 0; state.finished = false; state.searchIndex = -1;
+    cancelSession(); buildReader(); setActive(0, false); controls();
+    els.readerView.scrollIntoView({ behavior: 'smooth', block: 'center' });
+    status('Resumo carregado no leitor. Para voltar ao material, clique em “Processar texto”.');
+    playFrom(0);
+  });
+
+  async function generateQuestions() {
+    const t = checkText(); if (!t) return;
+    const count = Number(ile.count.value) || 10, style = ile.style.value;
+    const data = await ask(questionsPrompt(t.text, ile.focus.value.trim(), count, style), `Gerando ${count} questões`);
+    if (!data) return;
+    const list = (data.questoes || []).filter(q => q && q.enunciado && Array.isArray(q.alternativas) && q.alternativas.length >= 2);
+    if (!list.length) { ileStatus('Não vieram questões válidas. Tente novamente.', true); return; }
+    renderQuestions(list);
+    ileStatus(`${list.length} questões prontas.${t.cut ? ' Texto longo: foram usados os primeiros 90 mil caracteres.' : ''} Elimine alternativas com ✕ antes de responder.`);
+  }
+
+  // Localiza no leitor a frase que contém o trecho citado.
+  const plain = s => String(s).normalize('NFD').replace(/[̀-ͯ]/g, '').toLowerCase().replace(/[^a-z0-9]+/g, ' ').trim();
+  function findBlockFor(quote) {
+    if (!state.blocks.length && els.textInput.value.trim()) prepare();
+    if (!state.blocks.length) return -1;
+    const starts = []; let joined = '';
+    for (const b of state.blocks) { starts.push(joined.length); joined += plain(b.text) + ' '; }
+    const q = plain(quote);
+    const toIndex = pos => { let i = 0; while (i + 1 < starts.length && starts[i + 1] <= pos) i++; return i; };
+    for (const len of [80, 50, 30]) {
+      if (q.length < 12) break;
+      const pos = joined.indexOf(q.slice(0, Math.min(len, q.length)));
+      if (pos >= 0) return toIndex(pos);
+    }
+    const words = [...new Set(q.split(' ').filter(w => w.length > 3))];
+    let best = -1, bestScore = 0;
+    state.blocks.forEach((b, i) => {
+      const bt = ' ' + plain(b.text) + ' ';
+      const score = words.reduce((n, w) => n + (bt.includes(' ' + w + ' ') ? 1 : 0), 0);
+      if (score > bestScore) { bestScore = score; best = i; }
+    });
+    return bestScore >= Math.min(3, words.length) ? best : -1;
+  }
+  function goToQuote(quote, speak) {
+    const idx = findBlockFor(quote);
+    if (idx < 0) { ileStatus('Não encontrei esse trecho exato no leitor. Use a busca com uma palavra-chave.', true); return; }
+    els.readerView.querySelectorAll('.found').forEach(n => n.classList.remove('found'));
+    if (speak) playFrom(idx); else moveTo(idx);
+    els.readerView.querySelector(`[data-index="${idx}"]`)?.classList.add('found');
+    els.readerView.scrollIntoView({ behavior: 'smooth', block: 'center' });
+    ileStatus(`Trecho localizado na frase ${idx + 1} do leitor.`);
+  }
+
+  function updateScore() {
+    const s = ile.score;
+    const node = $('ileScore');
+    if (node) node.textContent = `Respondidas: ${s.answered}/${s.total} • Acertos: ${s.right}${s.answered ? ` (${Math.round(s.right / s.answered * 100)}%)` : ''}`;
+  }
+  function renderQuestions(list) {
+    ile.score = { answered: 0, right: 0, total: list.length };
+    const frag = document.createDocumentFragment();
+    frag.append(el('div', { class: 'scorebar' }, el('span', { id: 'ileScore' }),
+      el('button', { type: 'button', text: '↻ Gerar novas', onclick: generateQuestions })));
+    list.forEach((q, i) => frag.append(questionCard(q, i, list.length)));
+    ile.out.replaceChildren(frag);
+    updateScore();
+    ile.out.scrollIntoView({ behavior: 'smooth', block: 'start' });
+  }
+  function questionCard(q, i, total) {
+    const correct = String(q.correta || '').trim().toUpperCase().charAt(0);
+    let chosen = null, answered = false;
+    const card = el('div', { class: 'card' });
+    card.append(el('span', { class: 'tag', text: `Questão ${i + 1} de ${total}` }), el('p', { class: 'q-stem', text: q.enunciado }));
+    const alts = el('div', { class: 'alts', role: 'radiogroup', 'aria-label': `Alternativas da questão ${i + 1}` });
+    const rows = [];
+    for (const a of q.alternativas) {
+      const letter = String(a.letra || '').trim().toUpperCase().charAt(0);
+      const row = el('div', { class: 'alt' });
+      const pick = el('button', { type: 'button', class: 'alt-pick', role: 'radio', 'aria-checked': 'false' },
+        el('span', { class: 'letter', text: letter + ')' }), el('span', { text: a.texto || '' }));
+      const x = el('button', { type: 'button', class: 'alt-x', title: 'Eliminar esta alternativa', 'aria-label': `Eliminar alternativa ${letter}`, text: '✕' });
+      pick.addEventListener('click', () => {
+        if (answered || row.classList.contains('eliminated')) return;
+        chosen = letter;
+        rows.forEach(r => { r.pick.classList.toggle('chosen', r.letter === letter); r.pick.setAttribute('aria-checked', String(r.letter === letter)); });
+        btnAnswer.disabled = false;
+      });
+      x.addEventListener('click', () => {
+        if (answered) return;
+        const off = row.classList.toggle('eliminated');
+        x.textContent = off ? '↺' : '✕';
+        x.title = off ? 'Restaurar alternativa' : 'Eliminar esta alternativa';
+        if (off && chosen === letter) { chosen = null; pick.classList.remove('chosen'); btnAnswer.disabled = true; }
+      });
+      row.append(pick, x); alts.append(row);
+      rows.push({ letter, row, pick, x });
+    }
+    card.append(alts);
+
+    const steps = el('div');
+    const showOnce = (key, build) => { if (!steps.querySelector(`[data-step="${key}"]`)) { const s = build(); s.dataset.step = key; steps.append(s); } };
+    const showI = () => showOnce('I', () => {
+      const box = el('div', { class: 'ile-step' }, el('strong', { text: 'I — Identificar' }));
+      if (q.identificar?.comando) box.append(el('p', { style: 'margin:5px 0' }, el('em', { text: 'Comando: ' }), q.identificar.comando));
+      const kws = el('div'); for (const k of q.identificar?.palavras_chave || []) kws.append(el('span', { class: 'kw', text: k }));
+      box.append(kws);
+      if (q.dica) box.append(el('p', { class: 'hint', style: 'margin:6px 0 0', text: '💡 ' + q.dica }));
+      return box;
+    });
+    const showL = () => showOnce('L', () => {
+      const trecho = q.localizar?.trecho || '';
+      const box = el('div', { class: 'ile-step' }, el('strong', { text: 'L — Localizar' }));
+      if (trecho) box.append(el('blockquote', { text: trecho }));
+      if (answered && q.localizar?.explicacao) box.append(el('p', { style: 'margin:5px 0', text: q.localizar.explicacao }));
+      if (trecho) box.append(el('div', { class: 'q-actions' },
+        el('button', { type: 'button', text: '📍 Ir ao trecho no leitor', onclick: () => goToQuote(trecho, false) }),
+        el('button', { type: 'button', text: '🔊 Ouvir o trecho', onclick: () => goToQuote(trecho, true) })));
+      return box;
+    });
+    const btnI = el('button', { type: 'button', text: 'I · Identificar', onclick: showI });
+    const btnL = el('button', { type: 'button', text: 'L · Localizar', onclick: showL });
+    const btnAnswer = el('button', { type: 'button', class: 'primary', text: 'Responder', disabled: '' });
+    btnAnswer.addEventListener('click', () => {
+      if (answered || !chosen) return;
+      answered = true;
+      const ok = chosen === correct;
+      ile.score.answered++; if (ok) ile.score.right++; updateScore();
+      rows.forEach(r => {
+        r.x.disabled = true; r.pick.disabled = true;
+        if (r.letter === correct) r.row.classList.add('correct');
+        else if (r.letter === chosen) r.row.classList.add('wrong');
+      });
+      btnAnswer.hidden = true;
+      // Recria o passo L para incluir a explicação após responder.
+      steps.querySelector('[data-step="L"]')?.remove();
+      showI(); showL();
+      const box = el('div', { class: 'ile-step' }, el('strong', { text: 'E — Eliminar' }),
+        el('p', { class: 'verdict ' + (ok ? 'ok' : 'bad'), style: 'margin:5px 0', text: ok ? `✓ Correto! Gabarito: ${correct}.` : `✗ Você marcou ${chosen}. Gabarito: ${correct}.` }));
+      for (const e of q.eliminar || []) {
+        const letter = String(e.letra || '').trim().toUpperCase().charAt(0);
+        if (letter === correct) continue;
+        box.append(el('p', { class: 'elim' }, el('strong', { text: `${letter}) ` }), e.motivo || ''));
+      }
+      const myElims = rows.filter(r => r.row.classList.contains('eliminated')).map(r => r.letter);
+      if (myElims.length) {
+        const wrongElim = myElims.includes(correct);
+        box.append(el('p', { class: 'hint', style: 'margin:6px 0 0', text: wrongElim
+          ? `Atenção: você eliminou a alternativa correta (${correct}). Volte ao trecho localizado.`
+          : `Boa eliminação: você descartou ${myElims.join(', ')} corretamente.` }));
+      }
+      box.dataset.step = 'E'; steps.append(box);
+    });
+    card.append(el('div', { class: 'q-actions' }, btnI, btnL, btnAnswer), steps);
+    return card;
+  }
+
+  ile.btnSummary.addEventListener('click', generateSummary);
+  ile.btnQuestions.addEventListener('click', generateQuestions);
+
+  // Sem acesso ao Claude (ex.: arquivo baixado), oferece um prompt para copiar e colar no Claude.
+  function enableFallback() {
+    ile.ready = false;
+    ile.btnSummary.disabled = false; ile.btnQuestions.disabled = false;
+    const handler = kind => () => {
+      const t = checkText(); if (!t) return;
+      const prompt = kind === 'summary' ? summaryPrompt(t.text, ile.focus.value.trim())
+        : questionsPrompt(t.text, ile.focus.value.trim(), Number(ile.count.value) || 10, ile.style.value);
+      const box = el('textarea', { class: 'prompt-box', readonly: '' }); box.value = prompt;
+      const copy = el('button', { type: 'button', class: 'primary', text: '📋 Copiar prompt' });
+      copy.addEventListener('click', async () => {
+        try { await navigator.clipboard.writeText(prompt); copy.textContent = '✓ Copiado'; }
+        catch (_) { box.focus(); box.select(); copy.textContent = 'Selecionado: copie manualmente'; }
+      });
+      ile.out.replaceChildren(el('div', { class: 'card' },
+        el('span', { class: 'tag', text: 'Modo offline' }),
+        el('p', { text: 'Fora da página publicada no Claude, a geração automática não está disponível. Copie o prompt abaixo e cole numa conversa com o Claude.' }),
+        box, el('div', { class: 'q-actions' }, copy)));
+    };
+    ile.btnSummary.replaceWith(ile.btnSummary = ile.btnSummary.cloneNode(true));
+    ile.btnQuestions.replaceWith(ile.btnQuestions = ile.btnQuestions.cloneNode(true));
+    ile.btnSummary.addEventListener('click', handler('summary'));
+    ile.btnQuestions.addEventListener('click', handler('questions'));
+    ileStatus('Geração automática indisponível aqui: os botões criam um prompt para usar no Claude.');
+  }
+  ile.btnSummary.disabled = true; ile.btnQuestions.disabled = true;
+  ileStatus('Conectando ao Claude…');
+  (async () => {
+    try {
+      // Aguarda até 3 s o ambiente do Claude aparecer (fora dele, cai no modo offline).
+      for (let i = 0; i < 30 && !window.claude?.use; i++) await new Promise(r => setTimeout(r, 100));
+      const sample = window.claude?.use ? await window.claude.use('sample') : null;
+      if (!sample) { enableFallback(); return; }
+      ile.sample = sample; ile.ready = true; setIleBusy(false);
+      ileStatus('Pronto. Prepare o texto na etapa 1 e escolha resumo ou questões.');
+    } catch (_) { enableFallback(); }
+  })();
+
+  // ===================== PWA: instalação, offline e abrir arquivos =====================
+  if ('serviceWorker' in navigator && (location.protocol === 'https:' || location.hostname === 'localhost')) {
+    window.addEventListener('load', () => {
+      navigator.serviceWorker.register('sw.js').catch(err => console.warn('Service worker não registrado:', err));
+    });
+  }
+  let installPrompt = null;
+  const btnInstall = $('btnInstall');
+  window.addEventListener('beforeinstallprompt', event => {
+    event.preventDefault(); installPrompt = event; btnInstall.hidden = false;
+  });
+  btnInstall.addEventListener('click', async () => {
+    if (!installPrompt) return;
+    installPrompt.prompt();
+    try { await installPrompt.userChoice; } catch (_) {}
+    installPrompt = null; btnInstall.hidden = true;
+  });
+  window.addEventListener('appinstalled', () => { btnInstall.hidden = true; status('App instalado! Procure “Leitor Ativo” na tela inicial.'); });
+  // Quando instalado no computador (Chrome/Edge), permite abrir PDF/TXT direto pelo "Abrir com".
+  if ('launchQueue' in window) {
+    window.launchQueue.setConsumer(async params => {
+      const handle = params.files?.[0];
+      if (handle) { try { handleFile(await handle.getFile()); } catch (err) { console.warn(err); } }
+    });
+  }
+
+  progress(); controls();
+  if (!hasSpeech) status('Este navegador não oferece síntese de voz; tente Chrome ou Edge atualizado.', true);
+})();
+</script>
+</body>
+</html>

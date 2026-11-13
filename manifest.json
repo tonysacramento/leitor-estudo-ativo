@@ -1,0 +1,22 @@
+{
+  "name": "Leitor de Estudo Ativo",
+  "short_name": "Leitor Ativo",
+  "description": "Leitura em voz alta com destaque de frases, limpeza de PDFs e revisão pelo Método I-L-E.",
+  "lang": "pt-BR",
+  "id": "./",
+  "start_url": "./",
+  "scope": "./",
+  "display": "standalone",
+  "orientation": "any",
+  "background_color": "#f1f5fb",
+  "theme_color": "#174b87",
+  "categories": ["education", "productivity"],
+  "icons": [
+    { "src": "icons/icon-192.png", "sizes": "192x192", "type": "image/png", "purpose": "any" },
+    { "src": "icons/icon-512.png", "sizes": "512x512", "type": "image/png", "purpose": "any" },
+    { "src": "icons/icon-maskable-512.png", "sizes": "512x512", "type": "image/png", "purpose": "maskable" }
+  ],
+  "file_handlers": [
+    { "action": "./", "accept": { "application/pdf": [".pdf"], "text/plain": [".txt", ".md"] } }
+  ]
+}
