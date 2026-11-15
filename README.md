@@ -2,6 +2,9 @@
 
 App web instalável (PWA) para estudar ouvindo: modo leitura estilo Kindle (páginas, temas sépia/escuro, fonte e margens ajustáveis, sumário e retomada de onde parou), leitura em voz alta com a frase em destaque, importação de PDF/TXT/Markdown com limpeza de cabeçalhos e rodapés, busca e revisão pelo **Método I-L-E** (Identificar, Localizar, Eliminar).
 
+## Lista de arquivos
+Selecione vários PDFs/TXTs de uma vez. Eles ficam numa lista lateral (salva no aparelho), cada um com a posição onde você parou; ao terminar um arquivo, a leitura segue para o próximo.
+
 ## Instalar
 - **Android (Chrome):** abra o site e toque em **⬇ Instalar app** (ou ⋮ → *Instalar app*).
 - **iPhone (Safari):** Compartilhar → *Adicionar à Tela de Início*.

@@ -16,7 +16,7 @@
   <meta name="mobile-web-app-capable" content="yes">
   <meta name="apple-mobile-web-app-title" content="Leitor Ativo">
   <meta name="apple-mobile-web-app-status-bar-style" content="default">
-  <title>Leitor de Estudo Ativo • Versão 3.2</title>
+  <title>Leitor de Estudo Ativo • Versão 3.3</title>
   <!-- PDF.js (módulo moderno) é carregado somente ao abrir PDFs. Biblioteca e worker usam a mesma versão. -->
   <style>
     :root {
@@ -192,6 +192,46 @@
     .book-top .bk-ile-btn { font-size: .82rem; font-weight: 800; border: 1px solid var(--bk-line); padding: 6px 10px; white-space: nowrap; }
     .book.chrome .book-toast { bottom: calc(env(safe-area-inset-bottom, 0px) + 150px); }
     @media (prefers-reduced-motion: reduce) { .book-flow, .book-top, .book-panel { transition: none !important; } }
+    /* ===================== Lista de arquivos ===================== */
+    .library { position: fixed; top: 0; left: 0; bottom: 0; width: 300px; max-width: 86vw; z-index: 900; display: flex; flex-direction: column; gap: 10px; padding: calc(env(safe-area-inset-top, 0px) + 16px) 14px calc(env(safe-area-inset-bottom, 0px) + 16px); overflow-y: auto; background: var(--surface); border-right: 1px solid var(--border); box-shadow: var(--shadow); transform: translateX(-105%); transition: transform .22s ease; }
+    .library.open { transform: none; }
+    .lib-backdrop { position: fixed; inset: 0; z-index: 899; background: rgba(0, 0, 0, .35); }
+    .lib-backdrop[hidden] { display: none; }
+    .lib-head { display: flex; justify-content: space-between; align-items: center; gap: 8px; }
+    .lib-head strong { font-size: 1.05rem; }
+    .lib-close { padding: 6px 10px; }
+    .lib-add { width: 100%; }
+    .lib-auto { font-size: .84rem; }
+    .lib-list { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 8px; }
+    .lib-item { border: 1px solid var(--border); border-radius: 11px; background: var(--surface-2); overflow: hidden; }
+    .lib-item.active { border-color: var(--primary); box-shadow: inset 4px 0 0 var(--primary); }
+    .lib-open { display: block; width: 100%; text-align: left; border: 0; border-radius: 0; background: transparent; padding: 10px 12px 8px 14px; font-weight: 650; }
+    .lib-open:hover:not(:disabled) { background: color-mix(in srgb, var(--primary) 7%, transparent); border-color: transparent; }
+    .lib-name { display: flex; gap: 7px; align-items: baseline; overflow-wrap: anywhere; line-height: 1.35; }
+    .lib-kind { flex: none; font-size: .64rem; font-weight: 800; letter-spacing: .04em; padding: 1px 6px; border-radius: 5px; border: 1px solid var(--border); color: var(--muted); background: var(--surface); }
+    .lib-meta { display: block; margin-top: 3px; font-size: .76rem; font-weight: 500; color: var(--muted); }
+    .lib-now { color: var(--primary); font-weight: 800; }
+    .lib-bar { height: 4px; margin-top: 6px; border-radius: 4px; overflow: hidden; background: var(--border); }
+    .lib-bar > div { height: 100%; background: var(--primary); }
+    .lib-actions { display: flex; justify-content: flex-end; gap: 2px; padding: 0 6px 6px; }
+    .lib-actions button { padding: 3px 9px; font-size: .78rem; border-color: transparent; background: transparent; }
+    .lib-actions button.confirm { color: #b42318; border-color: #b42318; }
+    .lib-badge { display: inline-block; min-width: 20px; margin-left: 5px; padding: 0 6px; border-radius: 99px; background: var(--primary); color: var(--on-primary); font-size: .72rem; text-align: center; }
+    .lib-badge:empty { display: none; }
+    @media (min-width: 1180px) {
+      .library { transform: none; box-shadow: none; }
+      body { padding-left: calc(300px + clamp(12px, 3vw, 36px)); }
+      .lib-close, #btnLib { display: none; }
+      .lib-backdrop { display: none !important; }
+    }
+    .book .lib-item { background: transparent; border-color: var(--bk-line); }
+    .book .lib-item.active { border-color: var(--bk-fg); box-shadow: inset 4px 0 0 var(--bk-fg); }
+    .book .lib-open:hover { background: color-mix(in srgb, var(--bk-fg) 7%, transparent); }
+    .book .lib-meta { color: var(--bk-muted); }
+    .book .lib-now { color: var(--bk-fg); }
+    .book .lib-bar { background: var(--bk-line); }
+    .book .lib-bar > div { background: var(--bk-fg); }
+    .book .lib-kind { background: transparent; border-color: var(--bk-line); color: var(--bk-muted); }
     @media (max-width: 740px) {
       .settings { grid-template-columns: 1fr; }
       .mini-grid { grid-template-columns: 1fr; }
@@ -203,16 +243,25 @@
   </style>
 </head>
 <body>
+<aside id="library" class="library" aria-label="Arquivos de leitura">
+  <div class="lib-head"><strong>📚 Arquivos</strong><button type="button" id="libClose" class="lib-close" aria-label="Fechar a lista">✕</button></div>
+  <button type="button" id="libAdd" class="primary lib-add">＋ Adicionar arquivos</button>
+  <label class="toggle lib-auto"><input type="checkbox" id="libAuto" checked> Ao terminar, seguir para o próximo</label>
+  <ol id="libList" class="lib-list"></ol>
+  <p id="libEmpty" class="hint">Nenhum arquivo ainda. Selecione vários PDFs ou TXTs de uma vez: eles ficam salvos aqui, cada um com a posição onde você parou.</p>
+</aside>
+<div id="libBackdrop" class="lib-backdrop" hidden></div>
 <main>
   <header class="header">
     <div>
-      <div class="eyebrow">Estudo com áudio • v3.2</div>
+      <div class="eyebrow">Estudo com áudio • v3.3</div>
       <h1>Leitor de Estudo Ativo</h1>
       <p class="subtitle">Ouça, acompanhe a frase em destaque e retome de onde quiser.</p>
     </div>
     <div class="button-group">
       <button id="btnInstall" type="button" hidden>⬇ Instalar app</button>
-      <button id="btnTheme" type="button" aria-label="Alternar modo claro e escuro" title="Alternar tema">◐ Tema</button>
+      <button id="btnLib" type="button" aria-label="Abrir a lista de arquivos">📚 Arquivos<span class="lib-badge" id="libCount"></span></button>
+    <button id="btnTheme" type="button" aria-label="Alternar modo claro e escuro" title="Alternar tema">◐ Tema</button>
     </div>
   </header>
 
@@ -222,11 +271,11 @@
       <div class="field">
         <span class="label" id="fileLabel">Anexar arquivo</span>
         <label for="fileInput" class="dropzone" id="dropZone" tabindex="0" role="button" aria-describedby="fileHint">
-          <strong>📎 Toque para escolher um arquivo</strong>
-          <span class="hint">ou arraste e solte aqui</span>
+          <strong>📎 Toque para escolher arquivos</strong>
+          <span class="hint">pode selecionar vários • ou arraste e solte aqui</span>
         </label>
-        <input type="file" id="fileInput" class="file-input-hidden" aria-labelledby="fileLabel">
-        <span class="hint" id="fileHint">PDF com texto selecionável, TXT ou Markdown. O texto é processado automaticamente.</span>
+        <input type="file" id="fileInput" class="file-input-hidden" multiple aria-labelledby="fileLabel">
+        <span class="hint" id="fileHint">PDF com texto selecionável, TXT ou Markdown. Vários arquivos formam uma lista de leitura.</span>
       </div>
       <div class="field">
         <label for="voiceSelect">Voz da leitura</label>
@@ -345,6 +394,7 @@
   <div class="book-top">
     <button type="button" id="bkClose" aria-label="Fechar o modo leitura" title="Fechar">✕</button>
     <button type="button" id="bkTocBtn" aria-label="Sumário" title="Sumário">☰</button>
+    <button type="button" id="bkLibBtn" aria-label="Lista de arquivos" title="Arquivos">📚</button>
     <div class="book-title" id="bkTitle">Texto de estudo</div>
     <button type="button" id="bkFull" aria-label="Tela cheia" title="Tela cheia">⛶</button>
     <button type="button" id="bkIleBtn" class="bk-ile-btn" aria-label="Questões pelo Método I-L-E" title="Questões I-L-E">❓ I-L-E</button>
@@ -403,6 +453,7 @@
       <button type="button" id="bkIleGo" class="bk-go">❓ Gerar questões</button>
       <button type="button" id="bkIleSum">📝 Gerar resumo deste conteúdo</button></div>
   </div>
+  <div class="book-sheet left" id="bkLibSheet" hidden><strong>📚 Arquivos</strong><ol id="bkLibList" class="lib-list" style="margin-top:10px"></ol><button type="button" id="bkLibAdd" style="width:100%;margin-top:10px">＋ Adicionar arquivos</button></div>
   <div class="book-sheet left" id="bkToc" hidden><strong>Sumário</strong><ul id="bkTocList"></ul></div>
   <div class="book-toast" id="bkToast" role="status" aria-live="polite"></div>
 </div>
@@ -692,6 +743,7 @@
       state.activeEl = null;
     }
     hooks.active?.(index);
+    hooks.lib?.(index);
     progress();
   }
   function cancelSession() {
@@ -724,6 +776,7 @@
     return synth.getVoices().find(v => voiceKey(v) === els.voiceSelect.value) || null;
   }
   function finishReading() {
+    if (hooks.finished?.()) return;
     state.mode = 'idle';
     state.finished = true;
     state.currentUtterance = null;
@@ -1078,41 +1131,48 @@
       await pdf.destroy();
     }
   }
-  async function handleFile(file) {
-    if (!file) return;
+  // Importa um ou vários arquivos para a lista de leitura.
+  async function handleFiles(fileList) {
+    const files = [...(fileList || [])].filter(Boolean);
+    if (!files.length) return;
     const job = ++state.importJob;
     setBusy(true);
-    status(`Carregando ${file.name}…`);
+    const added = [], failed = [];
     try {
-      const result = await readFile(file, job);
-      if (job !== state.importJob || result === null) return;
-      if (!result.text.trim()) throw new Error('O arquivo não contém texto legível.');
-      cancelSession();
-      state.blocks = []; state.index = 0; state.finished = false; state.activeEl = null;
-      els.textInput.value = result.text;
-      state.pdfPages = result.pdfPages;
-      state.importedPdfText = result.pdfPages ? result.text : '';
-      displayPdfCleanReport(result.ignored, !!result.pdfPages && els.skipPdfHeaders.checked);
-      els.readerView.innerHTML = '<p class="placeholder">Arquivo importado. Clique em “Processar texto” para preparar a leitura.</p>';
-      progress(); controls();
-      state.fileName = file.name;
-      els.fileHint.textContent = `Selecionado: ${file.name}`;
-      const cleanNote = result.pdfPages && els.skipPdfHeaders.checked ? ` ${result.ignored.length} linhas de cabeçalho/rodapé ignoradas.` : '';
-      setBusy(false);
-      prepare(); // processa automaticamente
-      if (state.blocks.length) status(`Arquivo “${file.name}” pronto: ${state.blocks.length} frases.${cleanNote} Toque em 📖 Ler como livro ou em Reproduzir.`);
-    } catch (error) {
-      if (job === state.importJob) status('Erro na importação: ' + (error.message || 'arquivo inválido.'), true);
-      console.error('Erro na importação:', error);
+      for (let i = 0; i < files.length; i++) {
+        const file = files[i];
+        if (job !== state.importJob) return;
+        status(files.length > 1 ? `Importando ${i + 1} de ${files.length}: ${file.name}…` : `Carregando ${file.name}…`);
+        try {
+          const result = await readFile(file, job);
+          if (job !== state.importJob || result === null) return;
+          if (!result.text.trim()) throw new Error('não contém texto legível');
+          added.push(libAdd(file.name, result));
+        } catch (error) {
+          failed.push(`${file.name} (${error.message || 'arquivo inválido'})`);
+          console.error('Erro na importação:', error);
+        }
+      }
     } finally {
       if (job === state.importJob) setBusy(false);
     }
+    const failNote = failed.length ? ` Não foi possível ler: ${failed.join(' • ')}` : '';
+    if (!added.length) { status('Erro na importação:' + failNote.replace(' Não foi possível ler:', ''), true); return; }
+    const playing = state.mode === 'playing' && lib.activeId;
+    if (!playing) await libSwitch(added[0].id, { autoplay: false, quiet: true });
+    const first = added[0];
+    const msg = added.length === 1
+      ? (playing ? `“${first.name}” entrou na lista. A leitura atual continua.` : `“${first.name}” pronto. Toque em 📖 Ler como livro ou em Reproduzir.`)
+      : `${added.length} arquivos adicionados à lista${playing ? '; a leitura atual continua' : `; aberto: “${first.name}”`}.`;
+    status(msg + failNote, !!failed.length);
+    if (added.length > 1 && bk.open) bkToast(`📚 ${added.length} arquivos na lista`);
   }
+  const handleFile = file => handleFiles([file]);
   els.fileInput.addEventListener('change', event => {
-    const file = event.target.files?.[0];
-    // Limpa o campo para permitir escolher o mesmo arquivo novamente.
+    const files = [...(event.target.files || [])];
+    // Limpa o campo para permitir escolher os mesmos arquivos novamente.
     event.target.value = '';
-    handleFile(file);
+    handleFiles(files);
   });
   els.dropZone.addEventListener('keydown', event => {
     if (event.key === 'Enter' || event.key === ' ') { event.preventDefault(); els.fileInput.click(); }
@@ -1123,7 +1183,7 @@
   ['dragleave', 'dragend'].forEach(type => els.dropZone.addEventListener(type, () => els.dropZone.classList.remove('drag')));
   els.dropZone.addEventListener('drop', event => {
     event.preventDefault(); els.dropZone.classList.remove('drag');
-    handleFile(event.dataTransfer?.files?.[0]);
+    handleFiles(event.dataTransfer?.files);
   });
   // Evita que soltar um arquivo fora da área abra o arquivo no lugar da página.
   ['dragover', 'drop'].forEach(type => window.addEventListener(type, event => {
@@ -1496,8 +1556,9 @@ ${text}
   // Quando instalado no computador (Chrome/Edge), permite abrir PDF/TXT direto pelo "Abrir com".
   if ('launchQueue' in window) {
     window.launchQueue.setConsumer(async params => {
-      const handle = params.files?.[0];
-      if (handle) { try { handleFile(await handle.getFile()); } catch (err) { console.warn(err); } }
+      const files = [];
+      for (const handle of params.files || []) { try { files.push(await handle.getFile()); } catch (err) { console.warn(err); } }
+      if (files.length) handleFiles(files);
     });
   }
 
@@ -1620,7 +1681,7 @@ ${text}
   }
   function bkGoToPage(p, silentEdge = false) {
     const np = Math.max(0, Math.min(bk.total - 1, p));
-    if (np === bk.page) { if (!silentEdge) bkToast(p > bk.page ? 'Fim do documento' : 'Início do documento', 1200); return; }
+    if (np === bk.page) { if (!silentEdge && !(p > bk.page && hooks.edgeNext?.())) bkToast(p > bk.page ? 'Fim do documento' : 'Início do documento', 1200); return; }
     bk.page = np; bkApplyPage();
     if (state.mode === 'idle') {
       // Sem áudio tocando, a leitura em voz alta passa a começar no topo da página aberta.
@@ -1630,11 +1691,12 @@ ${text}
     }
   }
   const bkTurn = delta => bkGoToPage(bk.page + delta);
-  const bkAnySheet = () => !bk.settingsSheet.hidden || !bk.tocSheet.hidden || !$('bkIleSheet').hidden;
+  const bkAnySheet = () => !bk.settingsSheet.hidden || !bk.tocSheet.hidden || !$('bkIleSheet').hidden || !$('bkLibSheet').hidden;
   function bkSheets(which) {
     bk.settingsSheet.hidden = which !== 'settings';
     bk.tocSheet.hidden = which !== 'toc';
     $('bkIleSheet').hidden = which !== 'ile';
+    $('bkLibSheet').hidden = which !== 'lib';
   }
   function bkChrome(show) {
     const on = show ?? !bk.root.classList.contains('chrome');
@@ -1888,6 +1950,265 @@ ${text}
     } catch (_) { wakeLock = null; }
   }
   document.addEventListener('visibilitychange', syncWakeLock);
+
+  // ===================== Lista de arquivos (fila de leitura) =====================
+  const lib = {
+    docs: [], activeId: null, blocksRef: null, pdf: new Map(), edgeAt: 0, renderAt: 0, renderTimer: null, saveTimer: null,
+    meta: (() => { try { return JSON.parse(loadSetting('lib-meta', '{}')) || {}; } catch (_) { return {}; } })(),
+    panel: $('library'), list: $('libList'), empty: $('libEmpty'), auto: $('libAuto'), backdrop: $('libBackdrop'),
+    bookList: $('bkLibList'), badge: $('libCount')
+  };
+  lib.meta.pos ||= {}; lib.meta.done ||= {};
+  lib.auto.checked = lib.meta.auto !== false;
+  lib.auto.addEventListener('change', () => { lib.meta.auto = lib.auto.checked; libSaveMeta(true); });
+
+  // Textos ficam no IndexedDB do navegador (persistem entre visitas, só neste aparelho).
+  const libDb = (() => {
+    let opening = null;
+    const open = () => opening || (opening = new Promise((resolve, reject) => {
+      try {
+        const req = indexedDB.open('leitor-ativo', 1);
+        req.onupgradeneeded = () => req.result.createObjectStore('docs', { keyPath: 'id' });
+        req.onsuccess = () => resolve(req.result);
+        req.onerror = () => reject(req.error);
+      } catch (error) { reject(error); }
+    }).catch(() => null));
+    const run = async (mode, fn) => {
+      const db = await open(); if (!db) return null;
+      return new Promise(resolve => {
+        try {
+          const tx = db.transaction('docs', mode); const req = fn(tx.objectStore('docs'));
+          tx.oncomplete = () => resolve(req?.result ?? true); tx.onerror = () => resolve(null); tx.onabort = () => resolve(null);
+        } catch (_) { resolve(null); }
+      });
+    };
+    return { all: () => run('readonly', s => s.getAll()), put: doc => run('readwrite', s => s.put(doc)), del: id => run('readwrite', s => s.delete(id)) };
+  })();
+
+  function libSaveMeta(now = false) {
+    clearTimeout(lib.saveTimer);
+    const write = () => { lib.meta.order = lib.docs.map(d => d.id); lib.meta.activeId = lib.activeId; saveSetting('lib-meta', JSON.stringify(lib.meta)); };
+    if (now) write(); else lib.saveTimer = setTimeout(write, 900);
+  }
+  const libDoc = id => lib.docs.find(d => d.id === id) || null;
+  const countWords = text => (text.match(/\S+/g) || []).length;
+  function libAdd(name, result) {
+    const existing = lib.docs.find(d => d.name === name && d.text === result.text);
+    if (existing) { if (result.pdfPages) lib.pdf.set(existing.id, { pages: result.pdfPages, ignored: result.ignored }); return existing; }
+    const doc = {
+      id: 'd' + Date.now().toString(36) + Math.random().toString(36).slice(2, 7), name,
+      kind: result.pdfPages ? 'PDF' : /\.(md|markdown)$/i.test(name) ? 'MD' : 'TXT',
+      text: result.text, total: segmentText(result.text).length, words: countWords(result.text), added: Date.now()
+    };
+    if (result.pdfPages) lib.pdf.set(doc.id, { pages: result.pdfPages, ignored: result.ignored });
+    lib.docs.push(doc); libDb.put(doc); libSaveMeta(true); libRender();
+    return doc;
+  }
+  function libPos(doc) {
+    if (doc.id === lib.activeId && lib.blocksRef === state.blocks && state.blocks.length) return state.index;
+    return lib.meta.pos[doc.id] || 0;
+  }
+  function refreshBook(index) {
+    if (!bk.open) return;
+    bkBuild();
+    const name = state.fileName || 'Texto de estudo';
+    bk.title.textContent = name; bk.head.textContent = name;
+    bkLayout(index);
+    if (state.mode !== 'idle') bkHighlight(index);
+    bkToast(`📄 ${name}`, 1600);
+  }
+  async function libSwitch(id, { autoplay = false, quiet = false } = {}) {
+    const doc = libDoc(id); if (!doc) return;
+    cancelSession();
+    lib.activeId = id;
+    const pdf = lib.pdf.get(id);
+    els.textInput.value = doc.text;
+    state.pdfPages = pdf?.pages || null;
+    state.importedPdfText = pdf ? doc.text : '';
+    state.fileName = doc.name;
+    els.fileHint.textContent = `Aberto: ${doc.name}`;
+    displayPdfCleanReport(pdf?.ignored || [], !!pdf && els.skipPdfHeaders.checked);
+    prepare();
+    lib.blocksRef = state.blocks;
+    if (doc.total !== state.blocks.length) { doc.total = state.blocks.length; libDb.put(doc); }
+    let index = lib.meta.pos[id] || 0;
+    if (lib.meta.done[id] || index >= state.blocks.length) { index = 0; delete lib.meta.done[id]; }
+    state.index = index; state.finished = false;
+    setActive(index, true); controls();
+    lib.meta.pos[id] = index; libSaveMeta(true);
+    refreshBook(index);
+    if (autoplay) playFrom(index);
+    if (!quiet) status(index > 0 ? `“${doc.name}”: continuando na frase ${index + 1} de ${state.blocks.length}.` : `“${doc.name}” aberto.`);
+    libRender(true);
+    if (window.innerWidth < 1180) libDrawer(false);
+  }
+  function libRemoveDoc(id) {
+    const i = lib.docs.findIndex(d => d.id === id); if (i < 0) return;
+    const wasActive = id === lib.activeId;
+    lib.docs.splice(i, 1); lib.pdf.delete(id); delete lib.meta.pos[id]; delete lib.meta.done[id];
+    libDb.del(id);
+    if (wasActive) {
+      stop(); lib.activeId = null; lib.blocksRef = null;
+      const next = lib.docs[i] || lib.docs[i - 1];
+      if (next) libSwitch(next.id, { quiet: true });
+      else {
+        els.textInput.value = ''; state.blocks = []; state.index = 0; state.fileName = '';
+        els.readerView.innerHTML = '<p class="placeholder">O conteúdo processado aparecerá aqui. Clique numa frase para começar por ela.</p>';
+        els.fileHint.textContent = 'PDF com texto selecionável, TXT ou Markdown. Você pode escolher vários de uma vez.';
+        progress(); controls();
+      }
+    }
+    libSaveMeta(true); libRender(true);
+  }
+  function libMove(id, delta) {
+    const i = lib.docs.findIndex(d => d.id === id), j = i + delta;
+    if (i < 0 || j < 0 || j >= lib.docs.length) return;
+    [lib.docs[i], lib.docs[j]] = [lib.docs[j], lib.docs[i]];
+    libSaveMeta(true); libRender(true);
+  }
+  function libItem(doc, withActions) {
+    const active = doc.id === lib.activeId;
+    const pos = libPos(doc), total = Math.max(1, doc.total || 1);
+    const done = !!lib.meta.done[doc.id];
+    const pct = done ? 100 : Math.min(100, Math.round(pos / total * 100));
+    const li = document.createElement('li');
+    li.className = 'lib-item' + (active ? ' active' : '');
+    const open = document.createElement('button');
+    open.type = 'button'; open.className = 'lib-open';
+    open.setAttribute('aria-current', active ? 'true' : 'false');
+    const name = document.createElement('span'); name.className = 'lib-name';
+    name.append(Object.assign(document.createElement('span'), { className: 'lib-kind', textContent: doc.kind }), document.createTextNode(doc.name));
+    const meta = document.createElement('span'); meta.className = 'lib-meta';
+    if (active) meta.append(Object.assign(document.createElement('span'), { className: 'lib-now', textContent: state.mode === 'playing' ? '🔊 Lendo agora • ' : 'Aberto • ' }));
+    meta.append(done ? '✓ Concluído' : `${pct}% • ${formatMinutes((doc.words || 0) * (1 - pct / 100) / 200)} restantes`);
+    const bar = document.createElement('div'); bar.className = 'lib-bar';
+    bar.append(Object.assign(document.createElement('div'), { style: `width:${pct}%` }));
+    open.append(name, meta, bar);
+    open.addEventListener('click', () => {
+      if (active) { if (bk.open) { bkSheets(null); bkChrome(false); } else if (window.innerWidth < 1180) libDrawer(false); return; }
+      libSwitch(doc.id, { autoplay: state.mode === 'playing' });
+      if (bk.open) { bkSheets(null); bkChrome(false); }
+    });
+    li.append(open);
+    if (withActions) {
+      const actions = document.createElement('div'); actions.className = 'lib-actions';
+      const mk = (text, label, fn) => { const b = document.createElement('button'); b.type = 'button'; b.textContent = text; b.setAttribute('aria-label', label); b.title = label; b.addEventListener('click', fn); actions.append(b); return b; };
+      mk('↑', `Subir “${doc.name}” na lista`, () => libMove(doc.id, -1));
+      mk('↓', `Descer “${doc.name}” na lista`, () => libMove(doc.id, 1));
+      const del = mk('✕', `Remover “${doc.name}” da lista`, () => {
+        if (!del.classList.contains('confirm')) {
+          del.classList.add('confirm'); del.textContent = 'Remover?';
+          setTimeout(() => { del.classList.remove('confirm'); del.textContent = '✕'; }, 3000);
+          return;
+        }
+        libRemoveDoc(doc.id);
+      });
+      li.append(actions);
+    }
+    return li;
+  }
+  function libRender(now = false) {
+    // Durante a leitura a lista é atualizada no máximo uma vez por segundo.
+    if (!now && Date.now() - lib.renderAt < 1000) {
+      if (!lib.renderTimer) lib.renderTimer = setTimeout(() => { lib.renderTimer = null; libRender(true); }, 1000);
+      return;
+    }
+    lib.renderAt = Date.now();
+    lib.list.replaceChildren(...lib.docs.map(d => libItem(d, true)));
+    lib.bookList.replaceChildren(...lib.docs.map(d => libItem(d, false)));
+    if (!lib.docs.length) lib.bookList.append(Object.assign(document.createElement('li'), { className: 'hint', textContent: 'Nenhum arquivo na lista ainda.' }));
+    lib.empty.hidden = lib.docs.length > 0;
+    lib.badge.textContent = lib.docs.length ? String(lib.docs.length) : '';
+  }
+  function libDrawer(open) {
+    lib.panel.classList.toggle('open', open);
+    lib.backdrop.hidden = !open || window.innerWidth >= 1180;
+    if (open) lib.panel.querySelector('button')?.focus({ preventScroll: true });
+  }
+
+  // Posição de leitura de cada arquivo
+  hooks.lib = index => {
+    if (!lib.activeId || lib.blocksRef !== state.blocks) return;
+    lib.meta.pos[lib.activeId] = index;
+    libSaveMeta(); libRender();
+  };
+  const baseControlsHook = hooks.controls;
+  hooks.controls = () => { baseControlsHook?.(); if (lib.docs.length) libRender(); };
+  // Ao terminar um arquivo, segue para o próximo da lista sem perder o ritmo.
+  hooks.finished = () => {
+    if (!lib.activeId || lib.blocksRef !== state.blocks) return false;
+    const i = lib.docs.findIndex(d => d.id === lib.activeId);
+    lib.meta.done[lib.activeId] = true; lib.meta.pos[lib.activeId] = 0; libSaveMeta(true);
+    const next = lib.docs[i + 1];
+    if (!lib.auto.checked || !next) { libRender(true); return false; }
+    const token = state.session;
+    status(`“${lib.docs[i].name}” concluído. Abrindo “${next.name}”…`);
+    if (bk.open) bkToast(`✓ Concluído • próximo: ${next.name}`, 2200);
+    setTimeout(() => { if (token === state.session) libSwitch(next.id, { autoplay: true }); }, 900);
+    return true;
+  };
+  // No livro, avançar além da última página oferece o próximo arquivo.
+  hooks.edgeNext = () => {
+    const i = lib.docs.findIndex(d => d.id === lib.activeId);
+    const next = i >= 0 ? lib.docs[i + 1] : null;
+    if (!next) return false;
+    if (Date.now() - lib.edgeAt < 3500) { lib.edgeAt = 0; libSwitch(next.id, { autoplay: state.mode === 'playing' }); return true; }
+    lib.edgeAt = Date.now();
+    bkToast(`Fim. Avance de novo para abrir “${next.name}”`, 3200);
+    return true;
+  };
+  // Texto colado ou editado: “Processar texto” atualiza o arquivo aberto ou cria um novo item.
+  els.btnPrepare.addEventListener('click', () => {
+    if (!state.blocks.length) return;
+    const text = els.textInput.value;
+    let doc = libDoc(lib.activeId);
+    if (!doc) {
+      const n = lib.docs.filter(d => d.name.startsWith('Texto colado')).length + 1;
+      doc = libAdd(`Texto colado ${n}`, { text, pdfPages: null, ignored: [] });
+      lib.activeId = doc.id; state.fileName = doc.name;
+    } else if (doc.text !== text) {
+      Object.assign(doc, { text, total: state.blocks.length, words: countWords(text) });
+      libDb.put(doc); delete lib.meta.done[doc.id];
+    } else {
+      // Mesmo texto: mantém a posição em que você estava.
+      const saved = lib.meta.pos[doc.id] || 0;
+      if (saved > 0 && saved < state.blocks.length) { state.index = saved; setActive(saved, true); controls(); }
+    }
+    lib.blocksRef = state.blocks;
+    libSaveMeta(true); libRender(true);
+  });
+
+  $('btnLib').addEventListener('click', () => libDrawer(!lib.panel.classList.contains('open')));
+  $('libClose').addEventListener('click', () => libDrawer(false));
+  lib.backdrop.addEventListener('click', () => libDrawer(false));
+  $('libAdd').addEventListener('click', () => els.fileInput.click());
+  $('bkLibAdd').addEventListener('click', () => els.fileInput.click());
+  $('bkLibBtn').addEventListener('click', () => {
+    if (!$('bkLibSheet').hidden) { bkSheets(null); return; }
+    libRender(true); bkSheets('lib');
+  });
+  document.addEventListener('keydown', event => { if (event.key === 'Escape' && lib.panel.classList.contains('open') && !bk.open) libDrawer(false); });
+  window.addEventListener('resize', () => { if (window.innerWidth >= 1180) lib.backdrop.hidden = true; });
+
+  // Recupera a lista salva e reabre o último arquivo na posição em que parou.
+  (async () => {
+    const saved = await libDb.all();
+    if (Array.isArray(saved) && saved.length) {
+      const order = lib.meta.order || [];
+      saved.sort((a, b) => {
+        const ia = order.indexOf(a.id), ib = order.indexOf(b.id);
+        return (ia < 0 ? 1e9 : ia) - (ib < 0 ? 1e9 : ib) || a.added - b.added;
+      });
+      for (const doc of saved) if (!libDoc(doc.id)) lib.docs.push(doc);
+    }
+    libRender(true);
+    const last = libDoc(lib.meta.activeId);
+    if (last && !els.textInput.value.trim() && !lib.activeId) {
+      await libSwitch(last.id, { quiet: true });
+      const pos = libPos(last);
+      status(`Lista restaurada. “${last.name}” aberto${pos > 0 ? ` na frase ${pos + 1}` : ''}.`);
+    }
+  })();
 
   progress(); controls();
   if (!hasSpeech) status('Este navegador não oferece síntese de voz; tente Chrome ou Edge atualizado.', true);
