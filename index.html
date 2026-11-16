@@ -16,7 +16,7 @@
   <meta name="mobile-web-app-capable" content="yes">
   <meta name="apple-mobile-web-app-title" content="Leitor Ativo">
   <meta name="apple-mobile-web-app-status-bar-style" content="default">
-  <title>Leitor de Estudo Ativo • Versão 3.5</title>
+  <title>Leitor de Estudo Ativo • Versão 3.6</title>
   <!-- PDF.js (módulo moderno) é carregado somente ao abrir PDFs. Biblioteca e worker usam a mesma versão. -->
   <style>
     :root {
@@ -258,7 +258,7 @@
 <main>
   <header class="header">
     <div>
-      <div class="eyebrow">Estudo com áudio • v3.5</div>
+      <div class="eyebrow">Estudo com áudio • v3.6</div>
       <h1>Leitor de Estudo Ativo</h1>
       <p class="subtitle">Ouça, acompanhe a frase em destaque e retome de onde quiser.</p>
     </div>
@@ -593,6 +593,7 @@
     if (!ordered.length) {
       const option = new Option('Voz automática do navegador', '');
       els.voiceSelect.add(option);
+      hooks.voices?.();
       return;
     }
     for (const voice of ordered) {
@@ -601,6 +602,7 @@
     }
     const found = ordered.some(v => voiceKey(v) === current);
     els.voiceSelect.value = found ? current : voiceKey(ordered[0]);
+    hooks.voices?.();
   }
   populateVoices();
   if (hasSpeech) {
@@ -829,6 +831,7 @@
   }
   function cancelSession() {
     state.session++;
+    hooks.cancel?.();
     state.currentUtterance = null;
     if (synth) {
       try { synth.cancel(); if (synth.paused) synth.resume(); } catch (err) { console.warn(err); }
@@ -919,13 +922,15 @@
     setActive(state.index);
     controls();
     // Pequeno atraso ajuda os navegadores a liberar o áudio anterior após cancel().
+    if (hooks.playFrom?.(state.index, token)) return;
     setTimeout(() => speakBlock(state.index, token), 45);
   }
   function play() {
     if (!state.blocks.length) return;
     if (state.mode === 'paused') {
       try {
-        synth.resume(); state.mode = 'playing';
+        if (!hooks.resume?.()) synth.resume();
+        state.mode = 'playing';
         controls(); status('Leitura retomada.');
       } catch (_) { playFrom(state.index); }
     } else if (state.mode !== 'playing') {
@@ -935,7 +940,8 @@
   function pause() {
     if (state.mode !== 'playing') return;
     try {
-      synth.pause(); state.mode = 'paused'; controls(); status('Leitura pausada. Clique em Continuar para retomar.');
+      if (!hooks.pause?.()) synth.pause();
+      state.mode = 'paused'; controls(); status('Leitura pausada. Clique em Continuar para retomar.');
     } catch (err) { status('Não foi possível pausar a reprodução.', true); }
   }
   function stop() {
@@ -2412,12 +2418,123 @@ ${text}
   }
   // Se o navegador interrompeu a voz enquanto a tela estava apagada, retoma na frase atual.
   function bgWatchdog() {
-    if (state.mode !== 'playing' || !synth) return;
+    if (state.mode !== 'playing' || !synth || hooks.externalEngine?.()) return;
     if (synth.speaking || synth.pending) { bg.lastSpokenAt = Date.now(); return; }
     if (Date.now() - bg.lastSpokenAt > 4000) { bg.lastSpokenAt = Date.now(); playFrom(state.index); }
   }
   setInterval(bgWatchdog, 2000);
   document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'visible') bgWatchdog(); });
+
+  // ===================== Voz do Claude (áudio real; continua com a tela apagada) =====================
+  const ct = { t: null, token: -1, queuedUntil: 0, state: 'idle', active: false };
+  const CT_BATCH = 30;
+  const CT_VOICES = [['buttery', 'Buttery (padrão)'], ['airy', 'Airy'], ['glassy', 'Glassy'], ['rounded', 'Rounded']];
+  const usingClaude = () => !!ct.t && els.voiceSelect.value.startsWith('claude:');
+  const ctRate = () => Math.min(1.5, Math.max(.7, Number(els.speedRange.value) || 1));
+  function ctLines(from, to) {
+    const reps = Number(els.repeatSelect.value) || 1, voice = els.voiceSelect.value.slice(7) || 'buttery', rate = ctRate();
+    const out = [];
+    for (let i = from; i < to; i++) for (let r = 0; r < reps; r++) out.push({ text: state.blocks[i].text, id: String(i), voice, rate });
+    return out;
+  }
+  function ctTrack(promise, upto, token) {
+    promise.then(() => {
+      if (token !== state.session || !ct.active) return;
+      if (upto >= state.blocks.length) { ct.active = false; finishReading(); }
+    }).catch(error => {
+      if (token !== state.session || !ct.active) return;
+      ct.active = false;
+      const code = error?.code;
+      state.mode = 'idle'; controls();
+      if (code === 'not_granted') { ctDisable(); status('A voz do Claude foi desativada. Voltei para a voz do sistema.', true); }
+      else if (code === 'rate_limited') status('Muitas leituras seguidas com a voz do Claude. Aguarde um pouco ou use a voz do sistema.', true);
+      else if (code === 'viewer_stopped') status('Leitura interrompida.');
+      else status('Falha na voz do Claude (' + (code || error?.message || 'erro') + '). Tente de novo ou use a voz do sistema.', true);
+    });
+  }
+  function ctStart(index, token) {
+    ct.active = true; ct.token = token;
+    ct.queuedUntil = Math.min(state.blocks.length, index + CT_BATCH);
+    status(`Preparando a voz do Claude… frase ${index + 1}`);
+    let promise;
+    try { promise = ct.t.speak(ctLines(index, ct.queuedUntil)); }
+    catch (error) { promise = Promise.reject(error); }
+    ctTrack(promise, ct.queuedUntil, token);
+  }
+  function ctDisable() {
+    ct.t = null;
+    els.voiceSelect.querySelector('optgroup[data-claude]')?.remove();
+    if (els.voiceSelect.value.startsWith('claude:') || !els.voiceSelect.value) els.voiceSelect.selectedIndex = 0;
+    saveSetting('voice', els.voiceSelect.value);
+  }
+  function ctAddVoices() {
+    if (!ct.t || els.voiceSelect.querySelector('optgroup[data-claude]')) return;
+    const group = document.createElement('optgroup');
+    group.label = 'Voz do Claude • continua com a tela apagada';
+    group.dataset.claude = '1';
+    for (const [id, label] of CT_VOICES) group.append(new Option(`Claude • ${label}`, 'claude:' + id));
+    els.voiceSelect.prepend(group);
+    const saved = loadSetting('voice', '');
+    if (saved.startsWith('claude:')) els.voiceSelect.value = saved;
+  }
+  function ctHint() {
+    $('voiceHint').textContent = usingClaude()
+      ? 'Voz do Claude: toca como áudio e continua com a tela apagada ou em outro app. Precisa de internet.'
+      : 'Dê preferência a uma voz em português do Brasil. Vozes do sistema podem parar com a tela apagada.';
+  }
+  hooks.voices = () => { ctAddVoices(); ctHint(); };
+  hooks.externalEngine = () => ct.active;
+  hooks.playFrom = (index, token) => { if (!usingClaude()) return false; ctStart(index, token); return true; };
+  hooks.pause = () => { if (!ct.active) return false; try { ct.t.pause(); } catch (_) {} return true; };
+  hooks.resume = () => {
+    if (!ct.active) return false;
+    if (ct.state === 'paused') { try { ct.t.resume(); } catch (_) { playFrom(state.index); } }
+    else playFrom(state.index);
+    return true;
+  };
+  hooks.cancel = () => { if (ct.active) { ct.active = false; try { ct.t.stop(); } catch (_) {} } };
+  els.speedRange.addEventListener('input', () => { if (ct.active) { try { ct.t.setRate(ctRate()); } catch (_) {} } });
+  els.voiceSelect.addEventListener('change', () => {
+    ctHint();
+    if (state.mode === 'playing' || state.mode === 'paused') playFrom(state.index); // troca de voz na hora
+  });
+  (async () => {
+    for (let i = 0; i < 30 && !window.claude?.use; i++) await new Promise(r => setTimeout(r, 100));
+    let t = null;
+    try { t = window.claude?.use ? await window.claude.use('tts') : null; } catch (_) { t = null; }
+    if (!t) { ctHint(); return; }
+    ct.t = t;
+    t.onLine?.(({ id }) => {
+      if (!ct.active || ct.token !== state.session) return;
+      const i = Number(id);
+      if (!Number.isFinite(i) || i < 0 || i >= state.blocks.length) return;
+      if (i !== state.index || !state.activeEl) { state.index = i; state.finished = false; setActive(i); }
+      status(`Lendo frase ${i + 1} de ${state.blocks.length} • voz do Claude`);
+      // Enfileira o próximo trecho antes de acabar o atual, sem depender de timers.
+      if (ct.queuedUntil < state.blocks.length && i >= ct.queuedUntil - 8) {
+        const from = ct.queuedUntil;
+        ct.queuedUntil = Math.min(state.blocks.length, from + CT_BATCH);
+        let promise;
+        try { promise = ct.t.add(ctLines(from, ct.queuedUntil)); } catch (error) { promise = Promise.reject(error); }
+        ctTrack(promise, ct.queuedUntil, ct.token);
+      }
+    });
+    t.onState?.(({ state: s, reason }) => {
+      ct.state = s;
+      if (s === 'idle' && ct.active && (reason === 'viewer_stopped' || reason === 'time_limit')) {
+        ct.active = false;
+        if (state.mode !== 'idle') { state.mode = 'idle'; controls(); status(reason === 'time_limit' ? 'Pausa longa encerrou a leitura. Toque em Reproduzir para continuar.' : 'Leitura interrompida.'); }
+      }
+    });
+    ctAddVoices();
+    // Primeira vez: sugere a voz do Claude, que não para com a tela apagada.
+    if (loadSetting('claude-voice-offered', '') !== 'yes') {
+      saveSetting('claude-voice-offered', 'yes');
+      els.voiceSelect.value = 'claude:buttery'; saveSetting('voice', 'claude:buttery');
+      status('Voz do Claude selecionada: a leitura continua com a tela apagada. Você pode trocar em “Voz da leitura”.');
+    }
+    ctHint();
+  })();
 
   progress(); controls();
   if (!hasSpeech) status('Este navegador não oferece síntese de voz; tente Chrome ou Edge atualizado.', true);
