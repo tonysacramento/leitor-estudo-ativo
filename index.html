@@ -16,7 +16,7 @@
   <meta name="mobile-web-app-capable" content="yes">
   <meta name="apple-mobile-web-app-title" content="Leitor Ativo">
   <meta name="apple-mobile-web-app-status-bar-style" content="default">
-  <title>Leitor de Estudo Ativo • Versão 3.4</title>
+  <title>Leitor de Estudo Ativo • Versão 3.5</title>
   <!-- PDF.js (módulo moderno) é carregado somente ao abrir PDFs. Biblioteca e worker usam a mesma versão. -->
   <style>
     :root {
@@ -258,7 +258,7 @@
 <main>
   <header class="header">
     <div>
-      <div class="eyebrow">Estudo com áudio • v3.4</div>
+      <div class="eyebrow">Estudo com áudio • v3.5</div>
       <h1>Leitor de Estudo Ativo</h1>
       <p class="subtitle">Ouça, acompanhe a frase em destaque e retome de onde quiser.</p>
     </div>
@@ -362,6 +362,8 @@
       <div class="field">
         <label class="label">Acessibilidade</label>
         <span class="hint">Atalhos fora dos campos: <strong>Espaço</strong> (reproduzir/pausar), <strong>←</strong> e <strong>→</strong> (frases).</span>
+        <label class="toggle" for="bgAudio" style="margin-top:6px"><input type="checkbox" id="bgAudio" checked> Continuar com a tela apagada ou em outro app</label>
+        <span class="hint">Mostra controles na tela de bloqueio. Funciona na maioria dos Android com Chrome; no iPhone a voz do sistema ainda para.</span>
       </div>
     </div>
     <p id="statusMsg" class="status" role="status" aria-live="polite">Aguardando texto ou arquivo…</p>
@@ -862,6 +864,8 @@
     progress(); controls();
     status('Leitura concluída. Você pode recomeçar ou escolher outra frase.');
   }
+  // Com a página em segundo plano, encadeia a próxima frase na hora; os timers ficam lentos.
+  const nextTick = fn => (document.hidden ? fn() : setTimeout(fn, 25));
   function speakBlock(index, token, isRepeat = false) {
     if (token !== state.session || state.mode !== 'playing') return;
     if (index >= state.blocks.length) { finishReading(); return; }
@@ -885,9 +889,9 @@
       if (token !== state.session || state.currentUtterance !== utterance || state.mode !== 'playing') return;
       if (state.repeatLeft > 1) {
         state.repeatLeft--;
-        setTimeout(() => speakBlock(index, token, true), 25);
+        nextTick(() => speakBlock(index, token, true));
       } else {
-        setTimeout(() => speakBlock(index + 1, token), 25);
+        nextTick(() => speakBlock(index + 1, token));
       }
     };
     utterance.onerror = event => {
@@ -2315,6 +2319,105 @@ ${text}
   $('skipRefs').checked = loadSetting('skip-refs', 'yes') !== 'no';
   $('skipToc').addEventListener('change', reapplyStructure);
   $('skipRefs').addEventListener('change', reapplyStructure);
+
+  // ===================== Áudio em segundo plano e tela de bloqueio =====================
+  // Navegadores costumam suspender páginas sem mídia tocando. Enquanto a leitura acontece,
+  // um áudio silencioso mantém a página "tocando" e habilita os controles da tela de bloqueio.
+  const bg = { audio: null, url: null, stopTimer: null, ownPause: false, toggle: $('bgAudio'), artwork: null, lastSpokenAt: Date.now() };
+  bg.toggle.checked = loadSetting('bg-audio', 'yes') !== 'no';
+  bg.toggle.addEventListener('change', () => { saveSetting('bg-audio', bg.toggle.checked ? 'yes' : 'no'); bgSync(); });
+  function silentWavUrl(seconds = 2, rate = 8000) {
+    const n = seconds * rate, buf = new ArrayBuffer(44 + n), v = new DataView(buf);
+    const w = (o, s) => { for (let i = 0; i < s.length; i++) v.setUint8(o + i, s.charCodeAt(i)); };
+    w(0, 'RIFF'); v.setUint32(4, 36 + n, true); w(8, 'WAVE'); w(12, 'fmt '); v.setUint32(16, 16, true);
+    v.setUint16(20, 1, true); v.setUint16(22, 1, true); v.setUint32(24, rate, true); v.setUint32(28, rate, true);
+    v.setUint16(32, 1, true); v.setUint16(34, 8, true); w(36, 'data'); v.setUint32(40, n, true);
+    for (let i = 0; i < n; i++) v.setUint8(44 + i, 128);
+    return URL.createObjectURL(new Blob([buf], { type: 'audio/wav' }));
+  }
+  function bgArtwork() {
+    if (bg.artwork) return bg.artwork;
+    try {
+      const c = document.createElement('canvas'); c.width = c.height = 256;
+      const g = c.getContext('2d');
+      g.fillStyle = '#174b87'; g.fillRect(0, 0, 256, 256);
+      g.font = '150px serif'; g.textAlign = 'center'; g.textBaseline = 'middle'; g.fillText('📖', 128, 140);
+      bg.artwork = [{ src: c.toDataURL('image/png'), sizes: '256x256', type: 'image/png' }];
+    } catch (_) { bg.artwork = []; }
+    return bg.artwork;
+  }
+  function bgAudio() {
+    if (bg.audio) return bg.audio;
+    bg.url = silentWavUrl();
+    const a = new Audio(bg.url);
+    a.loop = true; a.preload = 'auto'; a.setAttribute('playsinline', ''); a.volume = 1;
+    a.id = 'bgKeepAlive'; a.hidden = true; document.body.append(a);
+    // Pausa vinda do sistema (fone desconectado, ligação, tela de bloqueio): pausa a leitura também.
+    a.addEventListener('pause', () => {
+      if (bg.ownPause) { bg.ownPause = false; return; }
+      if (state.mode === 'playing') pause();
+    });
+    bg.audio = a;
+    return a;
+  }
+  function bgMeta(index = state.index) {
+    if (!('mediaSession' in navigator) || !state.blocks.length) return;
+    try {
+      navigator.mediaSession.metadata = new MediaMetadata({
+        title: state.fileName || 'Texto de estudo',
+        artist: `Frase ${Math.min(index + 1, state.blocks.length)} de ${state.blocks.length}`,
+        album: 'Leitor de Estudo Ativo',
+        artwork: bgArtwork()
+      });
+    } catch (_) {}
+  }
+  function bgSync() {
+    const enabled = bg.toggle.checked;
+    const mode = state.mode;
+    if ('mediaSession' in navigator) {
+      try { navigator.mediaSession.playbackState = mode === 'playing' ? 'playing' : mode === 'paused' ? 'paused' : 'none'; } catch (_) {}
+    }
+    if (enabled && mode === 'playing') {
+      clearTimeout(bg.stopTimer);
+      const a = bgAudio();
+      if (a.paused) a.play().catch(() => {});
+      bgMeta();
+    } else if (bg.audio && !bg.audio.paused) {
+      // Pequena espera: na troca de frase/arquivo o modo fica "parado" por um instante.
+      const delay = mode === 'paused' ? 0 : 1500;
+      clearTimeout(bg.stopTimer);
+      bg.stopTimer = setTimeout(() => {
+        if (state.mode === 'playing' && bg.toggle.checked) return;
+        bg.ownPause = true; bg.audio.pause();
+      }, delay);
+    }
+  }
+  const prevControlsHook = hooks.controls;
+  hooks.controls = () => { prevControlsHook?.(); bgSync(); };
+  const prevLibHook = hooks.lib;
+  hooks.lib = index => { prevLibHook?.(index); if (state.mode === 'playing') { bg.lastSpokenAt = Date.now(); bgMeta(index); } };
+  if ('mediaSession' in navigator) {
+    const handlers = {
+      play: () => play(),
+      pause: () => pause(),
+      stop: () => stop(),
+      previoustrack: () => moveTo(state.index - 1),
+      nexttrack: () => moveTo(state.index + 1),
+      seekbackward: () => moveTo(state.index - 1),
+      seekforward: () => moveTo(state.index + 1)
+    };
+    for (const [action, fn] of Object.entries(handlers)) {
+      try { navigator.mediaSession.setActionHandler(action, fn); } catch (_) {}
+    }
+  }
+  // Se o navegador interrompeu a voz enquanto a tela estava apagada, retoma na frase atual.
+  function bgWatchdog() {
+    if (state.mode !== 'playing' || !synth) return;
+    if (synth.speaking || synth.pending) { bg.lastSpokenAt = Date.now(); return; }
+    if (Date.now() - bg.lastSpokenAt > 4000) { bg.lastSpokenAt = Date.now(); playFrom(state.index); }
+  }
+  setInterval(bgWatchdog, 2000);
+  document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'visible') bgWatchdog(); });
 
   progress(); controls();
   if (!hasSpeech) status('Este navegador não oferece síntese de voz; tente Chrome ou Edge atualizado.', true);
