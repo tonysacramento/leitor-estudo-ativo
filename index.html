@@ -16,7 +16,7 @@
   <meta name="mobile-web-app-capable" content="yes">
   <meta name="apple-mobile-web-app-title" content="Leitor Ativo">
   <meta name="apple-mobile-web-app-status-bar-style" content="default">
-  <title>Leitor de Estudo Ativo • Versão 3.6</title>
+  <title>Leitor de Estudo Ativo • Versão 3.7</title>
   <!-- PDF.js (módulo moderno) é carregado somente ao abrir PDFs. Biblioteca e worker usam a mesma versão. -->
   <style>
     :root {
@@ -85,6 +85,17 @@
     .pdf-options .toggle { color: var(--text); font-weight: 650; align-items: flex-start; }
     .pdf-options .toggle input { margin-top: 5px; }
     .pdf-options .hint { display: block; margin: 4px 0 0 23px; }
+    .doc-fig { margin: .3em 0 1em; text-align: center; }
+    .doc-fig img { max-width: 100%; height: auto; max-height: 340px; object-fit: contain; border-radius: 6px; border: 1px solid var(--border); background: #fff; cursor: zoom-in; }
+    .book-flow figure.doc-fig { margin: .5em 0 .9em; text-indent: 0; break-inside: avoid; }
+    .book-flow figure.doc-fig img { max-height: calc(var(--bk-colh, 60vh) * .8); border-color: var(--bk-line); }
+    .hide-images figure.doc-fig { display: none; }
+    .img-viewer { position: fixed; inset: 0; z-index: 1200; background: rgba(0, 0, 0, .92); overflow: auto; display: flex; align-items: center; justify-content: center; padding: 48px 10px 20px; }
+    .img-viewer[hidden] { display: none; }
+    .img-viewer img { max-width: 100%; max-height: 100%; object-fit: contain; background: #fff; cursor: zoom-in; }
+    .img-viewer.zoom { align-items: flex-start; justify-content: flex-start; }
+    .img-viewer.zoom img { max-width: none; max-height: none; width: 200%; cursor: zoom-out; }
+    .img-viewer-close { position: fixed; top: calc(env(safe-area-inset-top, 0px) + 10px); right: 12px; z-index: 1; background: rgba(255, 255, 255, .15) !important; color: #fff !important; border-color: transparent !important; }
     .clean-more { margin-top: 12px; padding-top: 10px; border-top: 1px solid var(--border); display: flex; flex-direction: column; gap: 2px; }
     .clean-more .hint { margin-bottom: 6px; }
     #structReport:empty { display: none; }
@@ -258,7 +269,7 @@
 <main>
   <header class="header">
     <div>
-      <div class="eyebrow">Estudo com áudio • v3.6</div>
+      <div class="eyebrow">Estudo com áudio • v3.7</div>
       <h1>Leitor de Estudo Ativo</h1>
       <p class="subtitle">Ouça, acompanhe a frase em destaque e retome de onde quiser.</p>
     </div>
@@ -300,6 +311,8 @@
         <span class="hint">Sumário, listas de figuras/tabelas/siglas e índice remissivo: o título e as linhas com pontilhado ou número de página.</span>
         <label class="toggle" for="skipRefs"><input type="checkbox" id="skipRefs" checked> Ignorar referências bibliográficas</label>
         <span class="hint">Pula a seção “Referências” ou “Bibliografia” até o próximo título (por exemplo, um anexo) ou o fim do texto. Vale para PDF, TXT e texto colado.</span>
+        <label class="toggle" for="pdfImages"><input type="checkbox" id="pdfImages" checked> Mostrar as imagens do PDF</label>
+        <span class="hint">Figuras e diagramas aparecem no texto e no modo livro (toque para ampliar). Desenhos feitos só com linhas, sem imagem, não são capturados.</span>
         <p class="hint" id="structReport" aria-live="polite"></p>
       </div>
       <details id="removedDetails" class="removed-details" hidden>
@@ -396,6 +409,10 @@
   </section>
   <p class="privacy">A limpeza automática analisa cabeçalhos e rodapés por repetição e posição; revise a lista de linhas ignoradas em documentos com diagramação incomum. O texto é tratado no seu navegador. PDFs dependem do carregamento da biblioteca PDF.js pela internet; vozes e sua disponibilidade dependem do navegador e do sistema. PDFs digitalizados como imagem exigem OCR, não incluído nesta versão. Resumos e questões são gerados pelo Claude a partir do texto da etapa 1; confira sempre com o material original.</p>
 </main>
+<div id="imgViewer" class="img-viewer" hidden role="dialog" aria-label="Imagem ampliada">
+  <button type="button" id="imgViewerClose" class="img-viewer-close" aria-label="Fechar imagem">✕</button>
+  <img id="imgViewerImg" alt="Imagem ampliada do documento">
+</div>
 <div id="book" class="book" hidden role="dialog" aria-modal="true" aria-labelledby="bkTitle">
   <div class="book-head" id="bkHead" aria-hidden="true"></div>
   <div class="book-stage" id="bkStage" tabindex="-1"><div class="book-flow" id="bkFlow" lang="pt-BR"></div></div>
@@ -655,6 +672,8 @@
       let cur = null;
       const push = () => { if (cur && cur.text.trim()) units.push(cur); cur = null; };
       lines.forEach((line, i) => {
+        const pic = /^!\[[^\]]*\]\(img:([\w-]+)\)$/.exec(line);
+        if (pic) { push(); units.push({ text: '', image: pic[1] }); return; }
         const md = /^(#{1,6})\s+(.*)$/.exec(line);
         if (md) { push(); units.push({ text: md[2].replace(/\s#+\s*$/, '').trim(), heading: true }); return; }
         if (looksLikeHeading(line)) {
@@ -727,7 +746,7 @@
     const text = normalizeText(raw).replace(/\*\*|__|`/g, '');
     const opts = textOpts();
     if (!opts.toc && !opts.refs) return text;
-    return stripStructure(splitUnits(text), opts).units.map(u => (u.heading ? '## ' : '') + u.text).join('\n\n');
+    return stripStructure(splitUnits(text), opts).units.filter(u => !u.image).map(u => (u.heading ? '## ' : '') + u.text).join('\n\n');
   }
   function structureNote() {
     const removed = state.lastRemoved || [];
@@ -745,11 +764,15 @@
     const blocks = [];
     const stripped = stripStructure(splitUnits(text), textOpts());
     state.lastRemoved = stripped.removed; state.lastUnsafe = !!stripped.unsafe;
+    let pendingImages = [];
     stripped.units.forEach((unit, p) => {
+      if (unit.image) { pendingImages.push(unit.image); return; }
       const clean = unit.text.replace(/\s{2,}/g, ' ').trim();
       if (!clean) return;
+      const firstOfUnit = blocks.length;
       if (unit.heading) {
         for (const chunk of divideLongText(clean)) blocks.push({ text: chunk, paragraph: p, heading: true });
+        if (pendingImages.length && blocks[firstOfUnit]) { blocks[firstOfUnit].images = pendingImages; pendingImages = []; }
         return;
       }
       const segments = segmenter
@@ -760,7 +783,9 @@
           if (chunk) blocks.push({ text: chunk, paragraph: p });
         }
       }
+      if (pendingImages.length && blocks[firstOfUnit]) { blocks[firstOfUnit].images = pendingImages; pendingImages = []; }
     });
+    if (pendingImages.length && blocks.length) blocks[blocks.length - 1].imagesAfter = pendingImages;
     return blocks;
   }
 
@@ -771,6 +796,7 @@
     for (let i = 0; i < state.blocks.length; i++) {
       const block = state.blocks[i];
       if (block.paragraph !== prevParagraph) {
+        for (const id of block.images || []) { const fig = hooks.figure?.(id); if (fig) frag.appendChild(fig); }
         group = document.createElement(block.heading ? 'h3' : 'p');
         if (block.heading) group.className = 'doc-h';
         frag.appendChild(group);
@@ -785,6 +811,7 @@
       span.setAttribute('aria-label', `Ler a partir da frase ${i + 1}: ${block.text}`);
       span.textContent = block.text + ' ';
       group.appendChild(span);
+      for (const id of block.imagesAfter || []) { const fig = hooks.figure?.(id); if (fig) frag.appendChild(fig); }
     }
     els.readerView.replaceChildren(frag);
   }
@@ -1074,9 +1101,11 @@
     let cur = null;
     const push = () => { if (cur && cur.text.trim()) out.push((cur.heading ? '## ' : '') + cur.text.trim()); cur = null; };
     all.forEach((line, i) => {
+      if (line.image) { push(); out.push(line.text); return; }
       const heading = isHeading(line);
       if (!cur) { cur = { text: line.text, heading }; return; }
       const prev = all[i - 1];
+      if (prev.image) { push(); cur = { text: line.text, heading }; return; }
       let brk;
       if (heading || cur.heading) {
         const close = line.page === prev.page && (!gap || (prev.y - line.y) < gap * 1.9);
@@ -1177,6 +1206,87 @@
   els.skipPdfHeaders.checked = loadSetting('pdf-headers', 'yes') !== 'no';
   els.skipPdfHeaders.addEventListener('change', applyPdfCleanup);
 
+  // ---------- Imagens do PDF ----------
+  // Encontra as imagens desenhadas na página (posição e tamanho) seguindo a matriz de transformação.
+  async function findPageImages(pdfjs, page) {
+    const ops = await page.getOperatorList();
+    const O = pdfjs.OPS, U = pdfjs.Util;
+    const [vx0, vy0, vx1, vy1] = page.view;
+    const pageArea = (vx1 - vx0) * (vy1 - vy0);
+    let ctm = [1, 0, 0, 1, 0, 0];
+    const stack = [], found = [];
+    for (let i = 0; i < ops.fnArray.length; i++) {
+      const fn = ops.fnArray[i], a = ops.argsArray[i];
+      if (fn === O.save) stack.push(ctm);
+      else if (fn === O.restore) ctm = stack.pop() || ctm;
+      else if (fn === O.transform) ctm = U.transform(ctm, a);
+      else if (fn === O.paintFormXObjectBegin) { stack.push(ctm); if (a?.[0]?.length === 6) ctm = U.transform(ctm, Array.from(a[0])); }
+      else if (fn === O.paintFormXObjectEnd) ctm = stack.pop() || ctm;
+      else if (fn === O.paintImageXObject || fn === O.paintInlineImageXObject) {
+        const pts = [[0, 0], [1, 0], [0, 1], [1, 1]].map(p => U.applyTransform(p, ctm));
+        const xs = pts.map(p => p[0]), ys = pts.map(p => p[1]);
+        const box = { x0: Math.max(vx0, Math.min(...xs)), x1: Math.min(vx1, Math.max(...xs)), y0: Math.max(vy0, Math.min(...ys)), y1: Math.min(vy1, Math.max(...ys)) };
+        const w = box.x1 - box.x0, h = box.y1 - box.y0;
+        if (w < 40 || h < 30 || w * h < 3600 || w * h > pageArea * .8) continue; // ícones, fundos de página
+        found.push(box);
+      }
+    }
+    // Junta pedaços de uma mesma imagem (algumas são desenhadas em faixas).
+    const merged = [];
+    for (const b of found.sort((p, q) => q.y1 - p.y1)) {
+      const hit = merged.find(m => b.x0 <= m.x1 + 3 && b.x1 >= m.x0 - 3 && b.y0 <= m.y1 + 3 && b.y1 >= m.y0 - 3);
+      if (hit) { hit.x0 = Math.min(hit.x0, b.x0); hit.x1 = Math.max(hit.x1, b.x1); hit.y0 = Math.min(hit.y0, b.y0); hit.y1 = Math.max(hit.y1, b.y1); }
+      else merged.push({ ...b });
+    }
+    return merged;
+  }
+  const newImageId = () => 'i' + Date.now().toString(36) + Math.random().toString(36).slice(2, 8);
+  async function extractPdfImages(pdfjs, pdf, pages, job) {
+    const key = b => [b.x0, b.y0, b.x1 - b.x0, b.y1 - b.y0].map(v => Math.round(v / 6)).join(':');
+    const counts = new Map();
+    pages.forEach(p => new Set((p.cands || []).map(key)).forEach(k => counts.set(k, (counts.get(k) || 0) + 1)));
+    const images = [];
+    for (let i = 0; i < pages.length && images.length < 120; i++) {
+      // Logotipos e marcas repetidos em várias páginas são ignorados.
+      const cands = (pages[i].cands || []).filter(b => !(pages.length >= 4 && counts.get(key(b)) >= 3));
+      if (!cands.length) continue;
+      if (job !== state.importJob) return null;
+      status(`Extraindo imagens do PDF… página ${i + 1} de ${pages.length}.`);
+      const page = await pdf.getPage(i + 1);
+      try {
+        const base = page.getViewport({ scale: 1 });
+        const scale = Math.min(2.5, Math.max(1.2, 1400 / base.width));
+        const vp = page.getViewport({ scale });
+        const canvas = document.createElement('canvas');
+        canvas.width = Math.ceil(vp.width); canvas.height = Math.ceil(vp.height);
+        const ctx = canvas.getContext('2d');
+        ctx.fillStyle = '#fff'; ctx.fillRect(0, 0, canvas.width, canvas.height);
+        await page.render({ canvasContext: ctx, viewport: vp }).promise;
+        for (const b of cands) {
+          const [ax, ay, bx, by] = vp.convertToViewportRectangle([b.x0, b.y0, b.x1, b.y1]);
+          const sx = Math.max(0, Math.floor(Math.min(ax, bx)) - 3), sy = Math.max(0, Math.floor(Math.min(ay, by)) - 3);
+          const sw = Math.min(canvas.width - sx, Math.ceil(Math.abs(bx - ax)) + 6), sh = Math.min(canvas.height - sy, Math.ceil(Math.abs(by - ay)) + 6);
+          if (sw < 20 || sh < 20) continue;
+          const fit = Math.min(1, 1400 / Math.max(sw, sh));
+          const out = document.createElement('canvas');
+          out.width = Math.round(sw * fit); out.height = Math.round(sh * fit);
+          out.getContext('2d').drawImage(canvas, sx, sy, sw, sh, 0, 0, out.width, out.height);
+          const blob = await new Promise(r => out.toBlob(r, 'image/jpeg', .86));
+          if (!blob) continue;
+          const id = newImageId();
+          images.push({ id, blob, w: out.width, h: out.height });
+          // Marca a posição da imagem no texto, logo acima da linha que vem abaixo dela.
+          const lines = pages[i].lines;
+          const marker = { text: `![imagem](img:${id})`, y: b.y1, x: b.x0, right: b.x1, h: null, ratio: null, zone: 'body', image: true };
+          const at = lines.findIndex(l => !l.image && Number.isFinite(l.y) && l.y < b.y1);
+          if (at < 0) lines.push(marker); else lines.splice(at, 0, marker);
+        }
+        canvas.width = canvas.height = 0;
+      } finally { page.cleanup(); }
+    }
+    return images;
+  }
+
   async function readFile(file, job) {
     const name = file.name || 'arquivo';
     const type = (file.type || '').toLowerCase();
@@ -1210,12 +1320,19 @@
         status(`Extraindo texto do PDF… página ${i} de ${pdf.numPages}.`);
         const page = await pdf.getPage(i);
         const content = await page.getTextContent();
-        pages.push({ lines: extractPageLines(content.items, page.view) });
+        let cands = [];
+        if (els.pdfImages?.checked !== false && $('pdfImages').checked) { try { cands = await findPageImages(pdfjs, page); } catch (err) { console.warn('Imagens da página', i, err); } }
+        pages.push({ lines: extractPageLines(content.items, page.view), cands });
         page.cleanup();
       }
       if (!pages.some(page => page.lines.length)) throw new Error('Este PDF não contém texto extraível. PDFs digitalizados precisam de OCR.');
+      let pdfImages = [];
+      if (pages.some(p => p.cands?.length)) {
+        try { pdfImages = (await extractPdfImages(pdfjs, pdf, pages, job)) || []; } catch (err) { console.warn('Falha ao extrair imagens', err); }
+        if (job !== state.importJob) return null;
+      }
       const filtered = filterPdfPages(pages, els.skipPdfHeaders.checked);
-      return { text: filtered.text, pdfPages: pages, ignored: filtered.ignored };
+      return { text: filtered.text, pdfPages: pages, ignored: filtered.ignored, images: pdfImages };
     } finally {
       await pdf.destroy();
     }
@@ -1303,7 +1420,8 @@
     return node;
   }
   function studyText() {
-    const raw = cleanedText(els.textInput.value || '');
+    const raw = cleanedText((els.textInput.value || '').replace(/^!\[[^\]]*\]\(img:[\w-]+\)$/gm, ''));
+    // As marcações de imagem não vão para o resumo/questões.
     return { text: raw.slice(0, MAX_CHARS), cut: raw.length > MAX_CHARS, empty: !raw };
   }
   const ILE_RULES = `Você é um professor especialista em concursos públicos brasileiros (tribunais de contas, controle externo, TI). Trabalhe SOMENTE com o conteúdo do MATERIAL fornecido; não invente fatos que não estejam nele. Escreva em português do Brasil.`;
@@ -1695,6 +1813,7 @@ ${text}
     let group = null, prevPara = -1, afterHeading = true;
     blocks.forEach((b, i) => {
       if (b.paragraph !== prevPara) {
+        for (const id of b.images || []) { const fig = hooks.figure?.(id); if (fig) { frag.append(fig); afterHeading = true; } }
         group = document.createElement(b.heading ? 'h2' : 'p');
         if (!b.heading && afterHeading) group.className = 'first';
         afterHeading = !!b.heading;
@@ -1704,10 +1823,15 @@ ${text}
       const span = document.createElement('span');
       span.className = 's'; span.dataset.i = String(i); span.textContent = b.text + ' ';
       group.append(span); bk.spans[i] = span;
+      for (const id of b.imagesAfter || []) { const fig = hooks.figure?.(id); if (fig) frag.append(fig); }
     });
     bk.endEl = document.createElement('p'); bk.endEl.className = 'end'; bk.endEl.textContent = '— FIM —';
     frag.append(bk.endEl);
     bk.flow.replaceChildren(frag);
+    // Recalcula as páginas quando cada imagem termina de carregar.
+    bk.flow.querySelectorAll('img').forEach(img => img.addEventListener('load', () => {
+      clearTimeout(bk.imgTimer); bk.imgTimer = setTimeout(() => { if (bk.open) bkLayout(bkAnchor()); }, 120);
+    }, { once: true }));
     bk.wordsFrom = new Array(blocks.length + 1).fill(0);
     for (let i = blocks.length - 1; i >= 0; i--) bk.wordsFrom[i] = bk.wordsFrom[i + 1] + (blocks[i].text.match(/\S+/g) || []).length;
     bk.key = hashText(blocks.length + '|' + blocks.slice(0, 12).map(b => b.text).join(' '));
@@ -1729,6 +1853,7 @@ ${text}
     f.style.transition = 'none';
     f.style.width = width + 'px'; f.style.columnCount = String(cols); f.style.columnGap = gap + 'px';
     bk.stride = width + gap;
+    f.style.setProperty('--bk-colh', bk.stage.clientHeight + 'px');
     const origin = f.getBoundingClientRect().left;
     const pageOf = el => { const r = el.getClientRects()[0] || el.getBoundingClientRect(); return Math.max(0, Math.floor((r.left - origin + 2) / bk.stride)); };
     bk.spanPages = bk.spans.map(pageOf);
@@ -1847,6 +1972,8 @@ ${text}
   const inChromeUi = target => target.closest('.book-top, .book-panel, .book-sheet, .book-foot button');
   bk.root.addEventListener('click', event => {
     if (inChromeUi(event.target)) return;
+    const fig = event.target.closest('figure.doc-fig');
+    if (fig && !bk.longPressed && Date.now() >= bk.suppressUntil) { hooks.openViewer?.(fig.dataset.img); return; }
     if (bk.longPressed) { bk.longPressed = false; return; }
     if (Date.now() < bk.suppressUntil) return;
     if (bkAnySheet()) { bkSheets(null); return; }
@@ -2056,22 +2183,37 @@ ${text}
     let opening = null;
     const open = () => opening || (opening = new Promise((resolve, reject) => {
       try {
-        const req = indexedDB.open('leitor-ativo', 1);
-        req.onupgradeneeded = () => req.result.createObjectStore('docs', { keyPath: 'id' });
+        const req = indexedDB.open('leitor-ativo', 2);
+        req.onupgradeneeded = () => {
+          const db = req.result;
+          if (!db.objectStoreNames.contains('docs')) db.createObjectStore('docs', { keyPath: 'id' });
+          if (!db.objectStoreNames.contains('images')) db.createObjectStore('images', { keyPath: 'id' }).createIndex('doc', 'docId');
+        };
         req.onsuccess = () => resolve(req.result);
         req.onerror = () => reject(req.error);
       } catch (error) { reject(error); }
     }).catch(() => null));
-    const run = async (mode, fn) => {
+    const run = async (store, mode, fn) => {
       const db = await open(); if (!db) return null;
       return new Promise(resolve => {
         try {
-          const tx = db.transaction('docs', mode); const req = fn(tx.objectStore('docs'));
+          const tx = db.transaction(store, mode); const req = fn(tx.objectStore(store));
           tx.oncomplete = () => resolve(req?.result ?? true); tx.onerror = () => resolve(null); tx.onabort = () => resolve(null);
         } catch (_) { resolve(null); }
       });
     };
-    return { all: () => run('readonly', s => s.getAll()), put: doc => run('readwrite', s => s.put(doc)), del: id => run('readwrite', s => s.delete(id)) };
+    return {
+      all: () => run('docs', 'readonly', s => s.getAll()),
+      put: doc => run('docs', 'readwrite', s => s.put(doc)),
+      del: id => run('docs', 'readwrite', s => s.delete(id)),
+      putImage: rec => run('images', 'readwrite', s => s.put(rec)),
+      imagesOf: docId => run('images', 'readonly', s => s.index('doc').getAll(docId)),
+      delImagesOf: docId => run('images', 'readwrite', s => {
+        const req = s.index('doc').openCursor(docId);
+        req.onsuccess = () => { const c = req.result; if (c) { c.delete(); c.continue(); } };
+        return null;
+      })
+    };
   })();
 
   function libSaveMeta(now = false) {
@@ -2087,8 +2229,11 @@ ${text}
     const doc = {
       id: 'd' + Date.now().toString(36) + Math.random().toString(36).slice(2, 7), name,
       kind: result.pdfPages ? 'PDF' : /\.(md|markdown)$/i.test(name) ? 'MD' : 'TXT',
-      text: result.text, total: segmentText(result.text).length, words: countWords(result.text), added: Date.now()
+      text: result.text, total: 0, words: countWords(result.text), added: Date.now(),
+      images: (result.images || []).map(im => im.id)
     };
+    for (const im of result.images || []) { rememberImage(im); libDb.putImage({ id: im.id, docId: doc.id, blob: im.blob, w: im.w, h: im.h }); }
+    doc.total = segmentText(result.text).length;
     if (result.pdfPages) lib.pdf.set(doc.id, { pages: result.pdfPages, ignored: result.ignored });
     lib.docs.push(doc); libDb.put(doc); libSaveMeta(true); libRender();
     return doc;
@@ -2117,6 +2262,8 @@ ${text}
     state.fileName = doc.name;
     els.fileHint.textContent = `Aberto: ${doc.name}`;
     displayPdfCleanReport(pdf?.ignored || [], !!pdf && els.skipPdfHeaders.checked);
+    await libLoadImages(doc);
+    if (lib.activeId !== id) return;
     prepare();
     lib.blocksRef = state.blocks;
     if (doc.total !== state.blocks.length) { doc.total = state.blocks.length; libDb.put(doc); }
@@ -2134,8 +2281,10 @@ ${text}
   function libRemoveDoc(id) {
     const i = lib.docs.findIndex(d => d.id === id); if (i < 0) return;
     const wasActive = id === lib.activeId;
+    const gone = lib.docs[i];
     lib.docs.splice(i, 1); lib.pdf.delete(id); delete lib.meta.pos[id]; delete lib.meta.done[id];
-    libDb.del(id);
+    libDb.del(id); libDb.delImagesOf(id);
+    for (const imgId of gone.images || []) { const im = images.get(imgId); if (im) { URL.revokeObjectURL(im.url); images.delete(imgId); } }
     if (wasActive) {
       stop(); lib.activeId = null; lib.blocksRef = null;
       const next = lib.docs[i] || lib.docs[i - 1];
@@ -2535,6 +2684,55 @@ ${text}
     }
     ctHint();
   })();
+
+  // ===================== Imagens: armazenamento, exibição e ampliação =====================
+  const images = new Map(); // id -> { url, w, h }
+  function rememberImage(rec) {
+    if (!rec?.id || images.has(rec.id) || !rec.blob) return;
+    images.set(rec.id, { url: URL.createObjectURL(rec.blob), w: rec.w, h: rec.h });
+  }
+  async function libLoadImages(doc) {
+    if (!doc?.images || doc.images.every(id => images.has(id))) return;
+    const recs = await libDb.imagesOf(doc.id);
+    (recs || []).forEach(rememberImage);
+  }
+  hooks.figure = id => {
+    const im = images.get(id);
+    if (!im) return null;
+    const fig = document.createElement('figure');
+    fig.className = 'doc-fig'; fig.dataset.img = id;
+    const img = new Image();
+    img.src = im.url; img.alt = 'Imagem do documento (toque para ampliar)';
+    if (im.w && im.h) { img.width = im.w; img.height = im.h; }
+    img.decoding = 'async';
+    fig.append(img);
+    return fig;
+  };
+  const viewer = $('imgViewer'), viewerImg = $('imgViewerImg');
+  function openViewer(id) {
+    const im = images.get(id); if (!im) return;
+    viewerImg.src = im.url; viewer.classList.remove('zoom'); viewer.hidden = false;
+    $('imgViewerClose').focus({ preventScroll: true });
+  }
+  function closeViewer() { viewer.hidden = true; viewerImg.removeAttribute('src'); }
+  hooks.openViewer = openViewer;
+  $('imgViewerClose').addEventListener('click', closeViewer);
+  viewer.addEventListener('click', event => {
+    if (event.target === viewerImg) { viewer.classList.toggle('zoom'); return; }
+    if (!event.target.closest('#imgViewerClose')) closeViewer();
+  });
+  document.addEventListener('keydown', event => { if (event.key === 'Escape' && !viewer.hidden) { event.stopPropagation(); closeViewer(); } }, true);
+  els.readerView.addEventListener('click', event => { const fig = event.target.closest('figure.doc-fig'); if (fig) openViewer(fig.dataset.img); });
+  // Mostrar/ocultar imagens
+  const imgToggle = $('pdfImages');
+  imgToggle.checked = loadSetting('pdf-images', 'yes') !== 'no';
+  const applyImgToggle = () => {
+    document.documentElement.classList.toggle('hide-images', !imgToggle.checked);
+    saveSetting('pdf-images', imgToggle.checked ? 'yes' : 'no');
+    if (bk.open) bkLayout(bkAnchor());
+  };
+  imgToggle.addEventListener('change', applyImgToggle);
+  applyImgToggle();
 
   progress(); controls();
   if (!hasSpeech) status('Este navegador não oferece síntese de voz; tente Chrome ou Edge atualizado.', true);
