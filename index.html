@@ -16,7 +16,7 @@
   <meta name="mobile-web-app-capable" content="yes">
   <meta name="apple-mobile-web-app-title" content="Leitor Ativo">
   <meta name="apple-mobile-web-app-status-bar-style" content="default">
-  <title>Leitor de Estudo Ativo • Versão 3.3</title>
+  <title>Leitor de Estudo Ativo • Versão 3.4</title>
   <!-- PDF.js (módulo moderno) é carregado somente ao abrir PDFs. Biblioteca e worker usam a mesma versão. -->
   <style>
     :root {
@@ -85,6 +85,10 @@
     .pdf-options .toggle { color: var(--text); font-weight: 650; align-items: flex-start; }
     .pdf-options .toggle input { margin-top: 5px; }
     .pdf-options .hint { display: block; margin: 4px 0 0 23px; }
+    .clean-more { margin-top: 12px; padding-top: 10px; border-top: 1px solid var(--border); display: flex; flex-direction: column; gap: 2px; }
+    .clean-more .hint { margin-bottom: 6px; }
+    #structReport:empty { display: none; }
+    #structReport { color: var(--text); font-weight: 600; }
     .removed-details { margin-top: 12px; border-top: 1px solid var(--border); padding-top: 8px; font-size: .87rem; }
     .removed-details summary { cursor: pointer; font-weight: 650; }
     .removed-details ul { padding-left: 22px; max-height: 140px; overflow-y: auto; }
@@ -254,7 +258,7 @@
 <main>
   <header class="header">
     <div>
-      <div class="eyebrow">Estudo com áudio • v3.3</div>
+      <div class="eyebrow">Estudo com áudio • v3.4</div>
       <h1>Leitor de Estudo Ativo</h1>
       <p class="subtitle">Ouça, acompanhe a frase em destaque e retome de onde quiser.</p>
     </div>
@@ -291,6 +295,13 @@
     <div class="pdf-options">
       <label class="toggle" for="skipPdfHeaders"><input type="checkbox" id="skipPdfHeaders" checked> Ignorar cabeçalhos, rodapés e números de página repetitivos (PDF)</label>
       <span class="hint">Detecta textos que se repetem nas margens das páginas. Aplique antes ou depois da importação; o corpo do documento é preservado.</span>
+      <div class="clean-more">
+        <label class="toggle" for="skipToc"><input type="checkbox" id="skipToc" checked> Ignorar sumário e índices</label>
+        <span class="hint">Sumário, listas de figuras/tabelas/siglas e índice remissivo: o título e as linhas com pontilhado ou número de página.</span>
+        <label class="toggle" for="skipRefs"><input type="checkbox" id="skipRefs" checked> Ignorar referências bibliográficas</label>
+        <span class="hint">Pula a seção “Referências” ou “Bibliografia” até o próximo título (por exemplo, um anexo) ou o fim do texto. Vale para PDF, TXT e texto colado.</span>
+        <p class="hint" id="structReport" aria-live="polite"></p>
+      </div>
       <details id="removedDetails" class="removed-details" hidden>
         <summary id="removedSummary">Linhas ignoradas</summary>
         <ul id="removedList"></ul>
@@ -619,7 +630,7 @@
   const ENDS_SENTENCE = /[.!?:;…]["'”»)\]]?$/;
   function looksLikeHeading(text) {
     const s = text.trim();
-    if (!s || s.length > 110 || /[.,;:]$/.test(s)) return false;
+    if (!s || s.length > 110 || /[.,;:]$/.test(s) || /(?:\.\s?){4,}|…{2,}/.test(s)) return false;
     if (HEADING_WORD.test(s) && s.length <= 90) return true;
     const letters = s.replace(/[^A-Za-zÀ-ÖØ-öø-ÿ]/g, '');
     return letters.length >= 4 && letters === letters.toLocaleUpperCase('pt-BR') && /[A-ZÀ-Ý]/.test(letters);
@@ -656,13 +667,81 @@
     }
     return units;
   }
+  // ---------- Ignorar sumário/índices e referências bibliográficas ----------
+  const TOC_HEAD = /^(?:\d+(?:\.\d+)*\s*[-–.]?\s*)?(?:sum[áa]rio|[íi]ndice(?:\s+(?:geral|remissivo|anal[íi]tico|sistem[áa]tico|alfab[ée]tico|de\s+\S+))?|conte[úu]do|lista\s+de\s+(?:figuras|tabelas|quadros|gr[áa]ficos|siglas|abreviaturas|ilustra[çc][õo]es|s[íi]mbolos))\s*:?$/i;
+  const REF_HEAD = /^(?:\d+(?:\.\d+)*\s*[-–.]?\s*)?(?:refer[êe]ncias(?:\s+bibliogr[áa]ficas)?|bibliografia(?:\s+(?:consultada|b[áa]sica|complementar|recomendada))?|obras\s+consultadas|fontes\s+consultadas|references|bibliography)\s*:?$/i;
+  const LEADERS = /(?:\.\s?){4,}|…{2,}|_{4,}|·{3,}/;
+  function textOpts() { return { toc: !!$('skipToc')?.checked, refs: !!$('skipRefs')?.checked }; }
+  // Linha típica de sumário/índice: pontilhado até o número da página, termina em número ou lista de páginas.
+  function tocLike(text) {
+    const s = text.trim();
+    if (LEADERS.test(s)) return true;
+    if (HEADING_WORD.test(s) && !s.replace(HEADING_WORD, '').trim()) return false; // "CAPÍTULO 1" real
+    if (/\s\d{1,4}$/.test(s) && s.length <= 160 && !ENDS_SENTENCE.test(s.replace(/\s\d{1,4}$/, ''))) return true;
+    const words = (s.match(/\S+/g) || []).length;
+    const nums = (s.match(/(?:^|[\s,])\d{1,4}(?=[\s,;.]|$)/g) || []).length;
+    return nums >= 3 && nums * 6 >= words;
+  }
+  function stripStructure(units, opts) {
+    if (!opts.toc && !opts.refs) return { units, removed: [] };
+    const out = [], removed = [];
+    let i = 0;
+    while (i < units.length) {
+      const u = units[i];
+      const head = u.heading ? u.text.split(' – ')[0].trim() : (u.text.length <= 60 ? u.text.trim() : '');
+      if (opts.toc && head && TOC_HEAD.test(head)) {
+        let j = i + 1, grace = 0;
+        while (j < units.length) {
+          const t = units[j].text;
+          if (tocLike(t)) { j++; grace = 0; continue; }
+          // Divisões curtas dentro do sumário (ex.: "PARTE I") seguidas de mais linhas de sumário.
+          if (units[j].heading && t.length <= 60 && grace < 1 && j + 1 < units.length && tocLike(units[j + 1].text)) { j++; grace++; continue; }
+          break;
+        }
+        removed.push({ kind: 'toc', label: head, count: j - i - 1, first: i, last: j });
+        i = j; continue;
+      }
+      if (opts.refs && head && REF_HEAD.test(head)) {
+        let j = i + 1;
+        // Pula até o próximo título (ex.: ANEXO, APÊNDICE) ou o fim do texto.
+        while (j < units.length && !(units[j].heading && !REF_HEAD.test(units[j].text))) j++;
+        removed.push({ kind: 'refs', label: head, count: j - i - 1, first: i, last: j });
+        i = j; continue;
+      }
+      if (opts.toc) {
+        let j = i;
+        while (j < units.length && LEADERS.test(units[j].text)) j++;
+        if (j - i >= 4) { removed.push({ kind: 'toc', label: 'Sumário', count: j - i, first: i, last: j }); i = j; continue; }
+      }
+      out.push(u); i++;
+    }
+    // Proteção: se quase tudo seria removido, a detecção provavelmente errou.
+    if (units.length > 5 && out.length < units.length * .15) return { units, removed: [], unsafe: true };
+    return { units: out, removed };
+  }
+  function cleanedText(raw) {
+    const text = normalizeText(raw).replace(/\*\*|__|`/g, '');
+    const opts = textOpts();
+    if (!opts.toc && !opts.refs) return text;
+    return stripStructure(splitUnits(text), opts).units.map(u => (u.heading ? '## ' : '') + u.text).join('\n\n');
+  }
+  function structureNote() {
+    const removed = state.lastRemoved || [];
+    const report = $('structReport');
+    const parts = removed.map(r => `${r.kind === 'toc' ? '📑' : '📚'} “${r.label}”`);
+    if (report) report.textContent = parts.length ? 'Ignorado neste texto: ' + parts.join(' • ') : (state.lastUnsafe ? 'A detecção foi desativada neste texto para não remover conteúdo demais.' : '');
+    return parts.length ? ` Ignorado: ${parts.join(', ')}.` : '';
+  }
+
   function segmentText(raw) {
     const text = normalizeText(raw).replace(/\*\*|__|`/g, '');
     if (!text) return [];
     const segmenter = typeof Intl.Segmenter === 'function'
       ? new Intl.Segmenter('pt-BR', { granularity: 'sentence' }) : null;
     const blocks = [];
-    splitUnits(text).forEach((unit, p) => {
+    const stripped = stripStructure(splitUnits(text), textOpts());
+    state.lastRemoved = stripped.removed; state.lastUnsafe = !!stripped.unsafe;
+    stripped.units.forEach((unit, p) => {
       const clean = unit.text.replace(/\s{2,}/g, ' ').trim();
       if (!clean) return;
       if (unit.heading) {
@@ -767,7 +846,7 @@
     els.readerView.scrollTop = 0;
     setActive(0, false);
     controls();
-    status(`${state.blocks.length} ${state.blocks.length === 1 ? 'frase preparada' : 'frases preparadas'}. Clique em Reproduzir ou numa frase para começar.`);
+    status(`${state.blocks.length} ${state.blocks.length === 1 ? 'frase preparada' : 'frases preparadas'}. Clique em Reproduzir ou numa frase para começar.${structureNote()}`);
   }
   els.btnPrepare.addEventListener('click', prepare);
 
@@ -1214,7 +1293,7 @@
     return node;
   }
   function studyText() {
-    const raw = normalizeText(els.textInput.value || '');
+    const raw = cleanedText(els.textInput.value || '');
     return { text: raw.slice(0, MAX_CHARS), cut: raw.length > MAX_CHARS, empty: !raw };
   }
   const ILE_RULES = `Você é um professor especialista em concursos públicos brasileiros (tribunais de contas, controle externo, TI). Trabalhe SOMENTE com o conteúdo do MATERIAL fornecido; não invente fatos que não estejam nele. Escreva em português do Brasil.`;
@@ -2209,6 +2288,33 @@ ${text}
       status(`Lista restaurada. “${last.name}” aberto${pos > 0 ? ` na frase ${pos + 1}` : ''}.`);
     }
   })();
+
+
+  // Reaplica as opções de limpeza no texto aberto, mantendo a frase atual.
+  function reapplyStructure() {
+    saveSetting('skip-toc', $('skipToc').checked ? 'yes' : 'no');
+    saveSetting('skip-refs', $('skipRefs').checked ? 'yes' : 'no');
+    if (!state.blocks.length || !els.textInput.value.trim()) return;
+    const current = state.blocks[state.index]?.text;
+    const wasPlaying = state.mode === 'playing';
+    const tracked = lib.blocksRef === state.blocks;
+    prepare();
+    if (tracked) {
+      lib.blocksRef = state.blocks;
+      const doc = libDoc(lib.activeId);
+      if (doc) { doc.total = state.blocks.length; libDb.put(doc); }
+    }
+    let index = current ? state.blocks.findIndex(b => b.text === current) : -1;
+    if (index < 0) index = 0;
+    state.index = index; setActive(index, true); controls();
+    refreshBook(index);
+    if (wasPlaying) playFrom(index);
+    libRender(true);
+  }
+  $('skipToc').checked = loadSetting('skip-toc', 'yes') !== 'no';
+  $('skipRefs').checked = loadSetting('skip-refs', 'yes') !== 'no';
+  $('skipToc').addEventListener('change', reapplyStructure);
+  $('skipRefs').addEventListener('change', reapplyStructure);
 
   progress(); controls();
   if (!hasSpeech) status('Este navegador não oferece síntese de voz; tente Chrome ou Edge atualizado.', true);
