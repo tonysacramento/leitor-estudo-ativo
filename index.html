@@ -16,7 +16,7 @@
   <meta name="mobile-web-app-capable" content="yes">
   <meta name="apple-mobile-web-app-title" content="Leitor Ativo">
   <meta name="apple-mobile-web-app-status-bar-style" content="default">
-  <title>Leitor de Estudo Ativo • Versão 4.1</title>
+  <title>Leitor de Estudo Ativo • Versão 4.2</title>
   <!-- PDF.js (módulo moderno) é carregado somente ao abrir PDFs. Biblioteca e worker usam a mesma versão. -->
   <style>
     :root {
@@ -274,7 +274,7 @@
 <main>
   <header class="header">
     <div>
-      <div class="eyebrow">Estudo com áudio • v4.1</div>
+      <div class="eyebrow">Estudo com áudio • v4.2</div>
       <h1>Leitor de Estudo Ativo</h1>
       <p class="subtitle">Ouça, acompanhe a frase em destaque e retome de onde quiser.</p>
     </div>
@@ -425,7 +425,7 @@
     <p id="ileStatus" class="status" role="status" aria-live="polite"></p>
     <div id="ileOut" class="ile-out"></div>
   </section>
-  <p class="privacy">A limpeza automática analisa cabeçalhos e rodapés por repetição e posição; revise a lista de linhas ignoradas em documentos com diagramação incomum. O texto é tratado no seu navegador. PDFs dependem do carregamento da biblioteca PDF.js pela internet; vozes e sua disponibilidade dependem do navegador e do sistema. PDFs digitalizados como imagem exigem OCR, não incluído nesta versão. Resumos e questões são gerados pelo Claude a partir do texto da etapa 1; confira sempre com o material original.</p>
+  <p class="privacy">A limpeza automática analisa cabeçalhos e rodapés por repetição e posição; revise a lista de linhas ignoradas em documentos com diagramação incomum. O texto é tratado no seu navegador. PDFs dependem do carregamento da biblioteca PDF.js pela internet; vozes e sua disponibilidade dependem do navegador e do sistema. PDFs digitalizados como imagem exigem OCR, não incluído nesta versão. Resumos e questões são gerados por IA (Claude ou Google Gemini) a partir do texto da etapa 1; confira sempre com o material original.</p>
 </main>
 <div id="imgViewer" class="img-viewer" hidden role="dialog" aria-label="Imagem ampliada">
   <button type="button" id="imgViewerClose" class="img-viewer-close" aria-label="Fechar imagem">✕</button>
@@ -1501,6 +1501,7 @@ ${text}
       if (controller.signal.aborted || error?.name === 'AbortError') { ileStatus('Geração cancelada.'); return null; }
       if (error?.code === 'not_granted') ileStatus('Permissão não concedida para gerar conteúdo com o Claude.', true);
       else if (error?.code === 'rate_limited') ileStatus('Muitas solicitações em pouco tempo (' + (error.message || 'limite') + '). Aguarde um minuto e tente de novo.', true);
+      else if (error?.code === 'overloaded') ileStatus('O Google Gemini está sobrecarregado agora (não é problema do app). Tente de novo em alguns minutos ou escolha outro modelo em “🔑 Gemini”.', true);
       else if (error?.code === 'bad_key' || error?.code === 'forbidden') { ileStatus('Gemini: ' + error.message + '. Confira a chave em “🔑 Gerar com o Google Gemini”.', true); gemEls.box.open = true; }
       else ileStatus('Não foi possível gerar: ' + (error?.message || 'erro desconhecido') + '. Tente novamente.', true);
       return null;
@@ -1733,6 +1734,7 @@ ${text}
   function gemError(res, body) {
     const msg = body?.error?.message || ('HTTP ' + res.status);
     if (res.status === 429) return { code: 'rate_limited', message: 'limite gratuito do Gemini atingido; aguarde um minuto' };
+    if (res.status === 503 || res.status === 500 || res.status === 502 || /overloaded|high demand|unavailable/i.test(msg)) return { code: 'overloaded', message: 'Gemini sobrecarregado no momento' };
     if (res.status === 400 && /API key/i.test(msg)) return { code: 'bad_key', message: 'chave do Gemini inválida' };
     if (res.status === 403) return { code: 'forbidden', message: 'chave sem permissão para a API do Gemini' };
     return { code: 'gemini', message: msg };
@@ -1748,9 +1750,35 @@ ${text}
       + ver(m) * 10 - (/(preview|exp)/i.test(m.name) ? 5 : 0) - (/latest/i.test(m.name) ? 1 : 0);
     return ok.sort((a, b) => score(b) - score(a)).map(m => ({ id: m.name.replace(/^models\//, ''), label: m.displayName || m.name }));
   }
+  const gemBusy = e => ['overloaded', 'rate_limited'].includes(e?.code);
+  const gemWait = (ms, signal) => new Promise((resolve, reject) => {
+    const t = setTimeout(resolve, ms);
+    signal?.addEventListener('abort', () => { clearTimeout(t); reject(Object.assign(new Error('cancelado'), { name: 'AbortError' })); }, { once: true });
+  });
+  // Tenta o modelo escolhido; se estiver sobrecarregado, espera e tenta de novo, depois usa outro modelo.
   async function gemSample(prompt, opts = {}) {
-    const model = gem.model || gem.models[0]?.id;
-    if (!gem.key || !model) throw { code: 'bad_key', message: 'configure a chave do Gemini' };
+    const first = gem.model || gem.models[0]?.id;
+    if (!gem.key || !first) throw { code: 'bad_key', message: 'configure a chave do Gemini' };
+    const order = [first, ...gem.models.map(m => m.id).filter(id => id !== first && !/-(preview|exp)/i.test(id))].slice(0, 4);
+    let last = null;
+    for (let m = 0; m < order.length; m++) {
+      const tries = m === 0 ? 2 : 1;
+      for (let attempt = 0; attempt < tries; attempt++) {
+        try {
+          if (m || attempt) ileStatus(`Gemini ocupado • tentando ${m ? 'outro modelo (' + order[m] + ')' : 'de novo'}…`);
+          const result = await gemCall(order[m], prompt, opts);
+          if (m) gemEls.status.textContent = `✓ Gerado com ${order[m]} (o modelo escolhido estava ocupado)`;
+          return result;
+        } catch (error) {
+          if (error?.name === 'AbortError' || !gemBusy(error)) throw error;
+          last = error;
+          if (attempt + 1 < tries) await gemWait(2000, opts.signal);
+        }
+      }
+    }
+    throw { code: last?.code === 'rate_limited' ? 'rate_limited' : 'overloaded', message: last?.code === 'rate_limited' ? 'limite gratuito do Gemini atingido; aguarde um minuto' : 'os servidores do Gemini estão sobrecarregados agora; tente de novo em alguns minutos' };
+  }
+  async function gemCall(model, prompt, opts) {
     const res = await fetch(GEM_API + 'models/' + encodeURIComponent(model) + ':generateContent', {
       method: 'POST', signal: opts.signal,
       headers: { 'Content-Type': 'application/json', 'x-goog-api-key': gem.key },
