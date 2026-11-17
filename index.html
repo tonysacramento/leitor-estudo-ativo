@@ -16,7 +16,7 @@
   <meta name="mobile-web-app-capable" content="yes">
   <meta name="apple-mobile-web-app-title" content="Leitor Ativo">
   <meta name="apple-mobile-web-app-status-bar-style" content="default">
-  <title>Leitor de Estudo Ativo • Versão 4.2</title>
+  <title>Leitor de Estudo Ativo • Versão 4.3</title>
   <!-- PDF.js (módulo moderno) é carregado somente ao abrir PDFs. Biblioteca e worker usam a mesma versão. -->
   <style>
     :root {
@@ -274,7 +274,7 @@
 <main>
   <header class="header">
     <div>
-      <div class="eyebrow">Estudo com áudio • v4.2</div>
+      <div class="eyebrow">Estudo com áudio • v4.3</div>
       <h1>Leitor de Estudo Ativo</h1>
       <p class="subtitle">Ouça, acompanhe a frase em destaque e retome de onde quiser.</p>
     </div>
@@ -3063,7 +3063,10 @@ ${text}
     status(`Lendo frase ${index + 1} de ${state.blocks.length} • voz neural`);
     try { await a.play(); } catch (error) { if (token === state.session) { state.mode = 'paused'; nv.paused = true; controls(); status('Toque em Continuar para retomar a leitura.'); } }
   }
+  // A voz neural só funciona no app instalado (GitHub Pages); na página do Claude o download do modelo é bloqueado.
+  const nvAllowed = /github\.io$|^localhost$|^127\./.test(location.hostname) || location.protocol === 'file:';
   function nvAddVoices() {
+    if (!nvAllowed) return;
     if (els.voiceSelect.querySelector('optgroup[data-neural]')) return;
     if (typeof Worker === 'undefined' || !('caches' in window)) return;
     const group = document.createElement('optgroup');
