@@ -16,7 +16,7 @@
   <meta name="mobile-web-app-capable" content="yes">
   <meta name="apple-mobile-web-app-title" content="Leitor Ativo">
   <meta name="apple-mobile-web-app-status-bar-style" content="default">
-  <title>Leitor de Estudo Ativo • Versão 4.4</title>
+  <title>Leitor de Estudo Ativo • Versão 4.5</title>
   <!-- PDF.js (módulo moderno) é carregado somente ao abrir PDFs. Biblioteca e worker usam a mesma versão. -->
   <style>
     :root {
@@ -275,7 +275,7 @@
 <main>
   <header class="header">
     <div>
-      <div class="eyebrow">Estudo com áudio • v4.4</div>
+      <div class="eyebrow">Estudo com áudio • v4.5</div>
       <h1>Leitor de Estudo Ativo</h1>
       <p class="subtitle">Ouça, acompanhe a frase em destaque e retome de onde quiser.</p>
     </div>
@@ -2668,13 +2668,15 @@ ${text}
   const bg = { audio: null, url: null, stopTimer: null, ownPause: false, toggle: $('bgAudio'), artwork: null, lastSpokenAt: Date.now() };
   bg.toggle.checked = loadSetting('bg-audio', 'yes') !== 'no';
   bg.toggle.addEventListener('change', () => { saveSetting('bg-audio', bg.toggle.checked ? 'yes' : 'no'); bgSync(); });
-  function silentWavUrl(seconds = 2, rate = 8000) {
+  // O Chrome do Android só cria controles de mídia (tela de bloqueio, fone) para áudios com 5 s ou mais.
+  function silentWavUrl(seconds = 12, rate = 8000) {
     const n = seconds * rate, buf = new ArrayBuffer(44 + n), v = new DataView(buf);
     const w = (o, s) => { for (let i = 0; i < s.length; i++) v.setUint8(o + i, s.charCodeAt(i)); };
     w(0, 'RIFF'); v.setUint32(4, 36 + n, true); w(8, 'WAVE'); w(12, 'fmt '); v.setUint32(16, 16, true);
     v.setUint16(20, 1, true); v.setUint16(22, 1, true); v.setUint32(24, rate, true); v.setUint32(28, rate, true);
     v.setUint16(32, 1, true); v.setUint16(34, 8, true); w(36, 'data'); v.setUint32(40, n, true);
-    for (let i = 0; i < n; i++) v.setUint8(44 + i, 128);
+    // Ruído mínimo, inaudível, para o áudio não ser tratado como "mudo".
+    for (let i = 0; i < n; i++) v.setUint8(44 + i, 128 + (i % 2));
     return URL.createObjectURL(new Blob([buf], { type: 'audio/wav' }));
   }
   function bgArtwork() {
