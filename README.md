@@ -10,6 +10,9 @@ Selecione vários PDFs/TXTs de uma vez. Eles ficam numa lista lateral (salva no 
 - **iPhone (Safari):** Compartilhar → *Adicionar à Tela de Início*.
 - **Computador (Chrome/Edge):** ícone de instalar na barra de endereço. Depois de instalado, o app aparece em *Abrir com* para PDF e TXT.
 
+## Voz neural (tela apagada)
+Em **Voz da leitura**, escolha uma voz "Neural". Ela é baixada uma vez (~60 MB), fica salva no aparelho e gera o áudio localmente, tocando como música: continua com a tela apagada e em outros apps, e funciona offline.
+
 ## Offline
 Depois da primeira abertura, o app e o leitor de PDF (PDF.js) ficam salvos no aparelho. As vozes dependem do sistema; algumas vozes "online" do Chrome precisam de internet.
 

@@ -16,7 +16,7 @@
   <meta name="mobile-web-app-capable" content="yes">
   <meta name="apple-mobile-web-app-title" content="Leitor Ativo">
   <meta name="apple-mobile-web-app-status-bar-style" content="default">
-  <title>Leitor de Estudo Ativo • Versão 3.8</title>
+  <title>Leitor de Estudo Ativo • Versão 4.0</title>
   <!-- PDF.js (módulo moderno) é carregado somente ao abrir PDFs. Biblioteca e worker usam a mesma versão. -->
   <style>
     :root {
@@ -269,7 +269,7 @@
 <main>
   <header class="header">
     <div>
-      <div class="eyebrow">Estudo com áudio • v3.8</div>
+      <div class="eyebrow">Estudo com áudio • v4.0</div>
       <h1>Leitor de Estudo Ativo</h1>
       <p class="subtitle">Ouça, acompanhe a frase em destaque e retome de onde quiser.</p>
     </div>
@@ -829,7 +829,7 @@
   }
   function controls() {
     const available = state.blocks.length > 0;
-    els.btnPlay.disabled = !available || !hasSpeech || state.mode === 'playing';
+    els.btnPlay.disabled = !available || (!hasSpeech && !els.voiceSelect.value.startsWith('neural:')) || state.mode === 'playing';
     els.btnPause.disabled = state.mode !== 'playing';
     els.btnStop.disabled = state.mode === 'idle';
     els.btnPrev.disabled = !available || state.index <= 0;
@@ -944,7 +944,7 @@
   }
   function playFrom(index) {
     if (!state.blocks.length) { status('Primeiro processe um texto.', true); return; }
-    if (!hasSpeech) { status('Este navegador não suporta leitura em voz alta (Web Speech API).', true); return; }
+    if (!hasSpeech && !els.voiceSelect.value.startsWith('neural:')) { status('Este navegador não suporta leitura em voz alta (Web Speech API).', true); return; }
     cancelSession();
     const token = state.session;
     state.index = Math.max(0, Math.min(index, state.blocks.length - 1));
@@ -2737,6 +2737,240 @@ ${text}
   };
   imgToggle.addEventListener('change', applyImgToggle);
   applyImgToggle();
+
+  // ===================== Voz neural (gera áudio no aparelho; toca com a tela apagada) =====================
+  // O modelo de voz é baixado uma vez (~60 MB), fica salvo no aparelho e funciona offline.
+  const NV_HF = 'https://huggingface.co/diffusionstudio/piper-voices/resolve/main/';
+  const NV_VOICES = {
+    faber: { label: 'Faber • masculina, mais natural', path: 'pt/pt_BR/faber/medium/pt_BR-faber-medium.onnx', mb: 63 },
+    edresson: { label: 'Edresson • masculina, mais leve', path: 'pt/pt_BR/edresson/low/pt_BR-edresson-low.onnx', mb: 63 }
+  };
+  const NV_CDN = {
+    ort: 'https://cdn.jsdelivr.net/npm/onnxruntime-web@1.18.0/dist/esm/ort.min.js',
+    ortWasm: 'https://cdn.jsdelivr.net/npm/onnxruntime-web@1.18.0/dist/',
+    phon: 'https://cdn.jsdelivr.net/npm/@diffusionstudio/vits-web@1.0.3/dist/piper-DeOu3H9E.js',
+    phonWasm: 'https://cdn.jsdelivr.net/npm/@diffusionstudio/piper-wasm@1.0.0/build/piper_phonemize'
+  };
+  // Código do worker: fonemização (eSpeak) + inferência (ONNX) fora da tela principal.
+  const NV_WORKER = `
+    let ort, phon, cfg, session;
+    const CACHE = 'leitor-voz-v1';
+    async function cached(url, onProgress) {
+      const cache = await caches.open(CACHE);
+      const hit = await cache.match(url);
+      if (hit) return hit.arrayBuffer();
+      const res = await fetch(url);
+      if (!res.ok) throw new Error('download ' + res.status);
+      const total = +(res.headers.get('Content-Length') || 0);
+      const reader = res.body.getReader(); const parts = []; let got = 0;
+      for (;;) { const { done, value } = await reader.read(); if (done) break; parts.push(value); got += value.length; onProgress && onProgress(got, total); }
+      const blob = new Blob(parts);
+      try { await cache.put(url, new Response(blob)); } catch (e) {}
+      return blob.arrayBuffer();
+    }
+    async function phonemize(texts) {
+      const out = [];
+      await new Promise(async (resolve, reject) => {
+        try {
+          const mod = await phon.createPiperPhonemize({
+            print: line => { try { out.push(JSON.parse(line).phoneme_ids); } catch (e) {} if (out.length >= texts.length) resolve(); },
+            printErr: () => {},
+            locateFile: f => f.endsWith('.wasm') ? P.phonWasm + '.wasm' : f.endsWith('.data') ? P.phonWasm + '.data' : f
+          });
+          mod.callMain(['-l', cfg.espeak.voice, '--input', JSON.stringify(texts.map(text => ({ text }))), '--espeak_data', '/espeak-ng-data']);
+          setTimeout(() => out.length >= texts.length ? resolve() : reject(new Error('fonemas')), 20000);
+        } catch (e) { reject(e); }
+      });
+      return out;
+    }
+    function wav(samples, rate) {
+      const n = samples.length, v = new DataView(new ArrayBuffer(44 + n * 2));
+      const w = (o, s) => { for (let i = 0; i < s.length; i++) v.setUint8(o + i, s.charCodeAt(i)); };
+      w(0, 'RIFF'); v.setUint32(4, 36 + n * 2, true); w(8, 'WAVE'); w(12, 'fmt '); v.setUint32(16, 16, true); v.setUint16(20, 1, true); v.setUint16(22, 1, true);
+      v.setUint32(24, rate, true); v.setUint32(28, rate * 2, true); v.setUint16(32, 2, true); v.setUint16(34, 16, true); w(36, 'data'); v.setUint32(40, n * 2, true);
+      let peak = 0; for (let i = 0; i < n; i++) peak = Math.max(peak, Math.abs(samples[i]));
+      const gain = peak > 0.01 ? Math.min(6, 0.9 / peak) : 1; // volume uniforme
+      for (let i = 0, o = 44; i < n; i++, o += 2) { const s = Math.max(-1, Math.min(1, samples[i] * gain)); v.setInt16(o, s < 0 ? s * 32768 : s * 32767, true); }
+      return v.buffer;
+    }
+    let P;
+    onmessage = async ({ data }) => {
+      try {
+        if (data.type === 'init') {
+          P = data.paths;
+          ort = ort || await import(P.ort);
+          ort.env.wasm.wasmPaths = P.ortWasm; ort.env.wasm.numThreads = 1;
+          phon = phon || await import(P.phon);
+          cfg = JSON.parse(new TextDecoder().decode(await cached(data.model + '.json')));
+          const model = await cached(data.model, (got, total) => postMessage({ type: 'progress', got, total }));
+          postMessage({ type: 'progress', got: 1, total: 0, stage: 'preparando' });
+          session = await ort.InferenceSession.create(model);
+          postMessage({ type: 'ready' });
+        } else if (data.type === 'synth') {
+          const ids = await phonemize(data.texts);
+          for (let i = 0; i < data.texts.length; i++) {
+            const max = cfg.num_symbols || Infinity;
+            const p = (ids[i] || []).filter(n => n < max);
+            if (!p.length) { postMessage({ type: 'audio', key: data.keys[i], buffer: wav(new Float32Array(1600), cfg.audio.sample_rate) }); continue; }
+            const feeds = {
+              input: new ort.Tensor('int64', BigInt64Array.from(p.map(BigInt)), [1, p.length]),
+              input_lengths: new ort.Tensor('int64', BigInt64Array.from([BigInt(p.length)]), [1]),
+              scales: new ort.Tensor('float32', Float32Array.from([cfg.inference.noise_scale, cfg.inference.length_scale, cfg.inference.noise_w]), [3])
+            };
+            if (Object.keys(cfg.speaker_id_map || {}).length) feeds.sid = new ort.Tensor('int64', BigInt64Array.from([0n]), [1]);
+            const out = await session.run(feeds);
+            const buffer = wav(out.output.data, cfg.audio.sample_rate);
+            postMessage({ type: 'audio', key: data.keys[i], buffer }, [buffer]);
+          }
+        }
+      } catch (e) { postMessage({ type: 'error', message: String(e && e.message || e), key: data.keys && data.keys[0] }); }
+    };`;
+
+  const nv = {
+    worker: null, voice: null, ready: null, readyOk: false, audio: null, cache: new Map(), waiting: new Map(),
+    inflight: false, queue: [], active: false, token: -1, index: 0, repeatLeft: 1, paused: false
+  };
+  const usingNeural = () => els.voiceSelect.value.startsWith('neural:');
+  const nvKey = text => nv.voice + '|' + text;
+  function nvHint(text) { $('voiceHint').textContent = text; }
+  function nvInit(voiceId) {
+    if (nv.voice === voiceId && nv.ready) return nv.ready;
+    nv.worker?.terminate();
+    nv.voice = voiceId; nv.readyOk = false; nv.inflight = false; nv.queue = [];
+    for (const [, w] of nv.waiting) w.reject(new Error('troca de voz'));
+    nv.waiting.clear();
+    const blobUrl = URL.createObjectURL(new Blob([NV_WORKER], { type: 'text/javascript' }));
+    const worker = new Worker(blobUrl, { type: 'module' });
+    nv.worker = worker;
+    try { navigator.storage?.persist?.(); } catch (_) {}
+    nv.ready = new Promise((resolve, reject) => {
+      worker.onmessage = ({ data }) => {
+        if (data.type === 'progress') {
+          if (data.stage) nvHint('Preparando a voz neural…');
+          else nvHint(data.total ? `Baixando a voz neural: ${Math.round(data.got / data.total * 100)}% de ${Math.round(data.total / 1048576)} MB (só na primeira vez)…` : `Baixando a voz neural: ${Math.round(data.got / 1048576)} MB…`);
+        } else if (data.type === 'ready') {
+          nv.readyOk = true; nvHint('Voz neural pronta • funciona offline e continua com a tela apagada.'); resolve();
+        } else if (data.type === 'audio') {
+          const url = URL.createObjectURL(new Blob([data.buffer], { type: 'audio/wav' }));
+          nv.cache.set(data.key, url);
+          if (nv.cache.size > 80) { const [k, u] = nv.cache.entries().next().value; nv.cache.delete(k); URL.revokeObjectURL(u); }
+          nv.waiting.get(data.key)?.resolve(url); nv.waiting.delete(data.key);
+          if (nv.queue[0]?.keys.includes(data.key) && nv.queue[0].keys.every(k => nv.cache.has(k))) { nv.queue.shift(); nv.inflight = false; nvPump(); }
+        } else if (data.type === 'error') {
+          if (!nv.readyOk) { nvHint('Não foi possível baixar a voz neural (' + data.message + '). Verifique a internet e escolha a voz de novo.'); reject(new Error(data.message)); return; }
+          console.warn('voz neural', data.message);
+          const job = nv.queue.shift(); nv.inflight = false;
+          for (const k of job?.keys || []) { nv.waiting.get(k)?.reject(new Error(data.message)); nv.waiting.delete(k); }
+          nvPump();
+        }
+      };
+      worker.onerror = e => { nvHint('A voz neural não é suportada neste navegador.'); reject(e); };
+    });
+    nv.ready.catch(() => {});
+    worker.postMessage({ type: 'init', paths: NV_CDN, model: NV_HF + NV_VOICES[voiceId].path });
+    return nv.ready;
+  }
+  function nvPump() {
+    if (nv.inflight || !nv.queue.length || !nv.readyOk) return;
+    nv.inflight = true;
+    const job = nv.queue[0];
+    nv.worker.postMessage({ type: 'synth', texts: job.texts, keys: job.keys });
+  }
+  function nvRequest(indices) {
+    const texts = [], keys = [];
+    for (const i of indices) {
+      const b = state.blocks[i]; if (!b) continue;
+      const k = nvKey(b.text);
+      if (nv.cache.has(k) || nv.waiting.has(k) || keys.includes(k)) continue;
+      texts.push(b.text); keys.push(k);
+      let resolve, reject; const p = new Promise((a, b2) => { resolve = a; reject = b2; }); p.catch(() => {});
+      nv.waiting.set(k, { promise: p, resolve, reject });
+    }
+    if (keys.length) { nv.queue.push({ texts, keys }); nvPump(); }
+  }
+  function nvUrl(index) {
+    const k = nvKey(state.blocks[index].text);
+    if (nv.cache.has(k)) return Promise.resolve(nv.cache.get(k));
+    if (!nv.waiting.has(k)) nvRequest([index]);
+    return nv.waiting.get(k).promise;
+  }
+  function nvPrefetch(from) {
+    // Gera as próximas frases com antecedência; em segundo plano o áudio já está pronto.
+    const ahead = [];
+    for (let i = from; i < Math.min(state.blocks.length, from + 10); i++) if (!nv.cache.has(nvKey(state.blocks[i].text))) ahead.push(i);
+    for (let i = 0; i < ahead.length; i += 2) nvRequest(ahead.slice(i, i + 2));
+  }
+  function nvAudio() {
+    if (nv.audio) return nv.audio;
+    const a = new Audio(); a.preload = 'auto'; a.setAttribute('playsinline', ''); a.id = 'neuralAudio'; a.hidden = true;
+    document.body.append(a);
+    a.addEventListener('ended', () => {
+      if (!nv.active || nv.token !== state.session) return;
+      if (nv.repeatLeft > 1) { nv.repeatLeft--; a.currentTime = 0; a.play().catch(() => {}); return; }
+      nvPlayIndex(nv.index + 1, nv.token);
+    });
+    a.addEventListener('pause', () => {
+      // Pausa vinda do sistema (fone desconectado, ligação).
+      if (nv.active && !nv.paused && !a.ended && state.mode === 'playing' && a.currentTime > 0 && a.currentTime < a.duration) pause();
+    });
+    nv.audio = a; return a;
+  }
+  async function nvPlayIndex(index, token) {
+    if (token !== state.session || !nv.active) return;
+    if (index >= state.blocks.length) { nv.active = false; finishReading(); return; }
+    nv.index = index; state.index = index; state.finished = false;
+    nv.repeatLeft = Number(els.repeatSelect.value) || 1;
+    setActive(index);
+    nvPrefetch(index + 1);
+    const a = nvAudio();
+    let url;
+    if (!nv.cache.has(nvKey(state.blocks[index].text))) status(`Gerando a voz da frase ${index + 1}…`);
+    try { url = await nvUrl(index); }
+    catch (error) { if (token === state.session && nv.active) { nv.active = false; state.mode = 'idle'; controls(); status('Falha na voz neural: ' + error.message, true); } return; }
+    if (token !== state.session || !nv.active) return;
+    a.src = url;
+    a.playbackRate = Number(els.speedRange.value) || 1;
+    a.preservesPitch = true;
+    status(`Lendo frase ${index + 1} de ${state.blocks.length} • voz neural`);
+    try { await a.play(); } catch (error) { if (token === state.session) { state.mode = 'paused'; nv.paused = true; controls(); status('Toque em Continuar para retomar a leitura.'); } }
+  }
+  function nvAddVoices() {
+    if (els.voiceSelect.querySelector('optgroup[data-neural]')) return;
+    if (typeof Worker === 'undefined' || !('caches' in window)) return;
+    const group = document.createElement('optgroup');
+    group.label = 'Voz neural • offline, continua com a tela apagada';
+    group.dataset.neural = '1';
+    for (const [id, v] of Object.entries(NV_VOICES)) group.append(new Option(`Neural • ${v.label} (${v.mb} MB)`, 'neural:' + id));
+    els.voiceSelect.prepend(group);
+    const saved = loadSetting('voice', '');
+    if (saved.startsWith('neural:')) { els.voiceSelect.value = saved; nvInit(saved.slice(7)); }
+  }
+  const baseVoicesHook = hooks.voices;
+  hooks.voices = () => { baseVoicesHook?.(); nvAddVoices(); if (usingNeural() && nv.readyOk) nvHint('Voz neural pronta • funciona offline e continua com a tela apagada.'); };
+  const base = { playFrom: hooks.playFrom, pause: hooks.pause, resume: hooks.resume, cancel: hooks.cancel, ext: hooks.externalEngine };
+  hooks.externalEngine = () => nv.active || !!base.ext?.();
+  hooks.playFrom = (index, token) => {
+    if (!usingNeural()) return base.playFrom?.(index, token) || false;
+    nv.active = true; nv.paused = false; nv.token = token;
+    const id = els.voiceSelect.value.slice(7);
+    if (!nv.readyOk) status('Preparando a voz neural… na primeira vez ela é baixada (cerca de 60 MB).');
+    nvInit(id).then(() => nvPlayIndex(index, token)).catch(error => {
+      if (token !== state.session) return;
+      nv.active = false; state.mode = 'idle'; controls(); status('A voz neural não pôde ser carregada: ' + (error?.message || 'erro') + '.', true);
+    });
+    return true;
+  };
+  hooks.pause = () => { if (!nv.active) return base.pause?.() || false; nv.paused = true; nv.audio?.pause(); return true; };
+  hooks.resume = () => {
+    if (!nv.active) return base.resume?.() || false;
+    nv.paused = false;
+    if (nv.audio?.src && !nv.audio.ended) nv.audio.play().catch(() => playFrom(state.index)); else playFrom(state.index);
+    return true;
+  };
+  hooks.cancel = () => { base.cancel?.(); if (nv.active || nv.audio) { nv.active = false; nv.paused = false; try { nv.audio?.pause(); } catch (_) {} } };
+  els.speedRange.addEventListener('input', () => { if (nv.audio) nv.audio.playbackRate = Number(els.speedRange.value) || 1; });
+  els.voiceSelect.addEventListener('change', () => { if (usingNeural()) nvInit(els.voiceSelect.value.slice(7)); });
+  nvAddVoices();
 
   progress(); controls();
   if (!hasSpeech) status('Este navegador não oferece síntese de voz; tente Chrome ou Edge atualizado.', true);
