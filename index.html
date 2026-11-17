@@ -16,7 +16,7 @@
   <meta name="mobile-web-app-capable" content="yes">
   <meta name="apple-mobile-web-app-title" content="Leitor Ativo">
   <meta name="apple-mobile-web-app-status-bar-style" content="default">
-  <title>Leitor de Estudo Ativo • Versão 4.0</title>
+  <title>Leitor de Estudo Ativo • Versão 4.1</title>
   <!-- PDF.js (módulo moderno) é carregado somente ao abrir PDFs. Biblioteca e worker usam a mesma versão. -->
   <style>
     :root {
@@ -96,6 +96,11 @@
     .img-viewer.zoom { align-items: flex-start; justify-content: flex-start; }
     .img-viewer.zoom img { max-width: none; max-height: none; width: 200%; cursor: zoom-out; }
     .img-viewer-close { position: fixed; top: calc(env(safe-area-inset-top, 0px) + 10px); right: 12px; z-index: 1; background: rgba(255, 255, 255, .15) !important; color: #fff !important; border-color: transparent !important; }
+    .gem-box { margin-top: 14px; border: 1px solid var(--border); border-radius: 10px; padding: 10px 14px; background: var(--surface-2); }
+    .gem-box summary { cursor: pointer; font-weight: 700; }
+    .gem-box input[type=password] { flex: 1; min-width: 150px; color: var(--text); background: var(--surface); border: 1px solid var(--border); border-radius: 9px; padding: 10px 12px; }
+    .gem-box select { flex: 1; min-width: 150px; }
+    .gem-box a { color: var(--primary); }
     .clean-more { margin-top: 12px; padding-top: 10px; border-top: 1px solid var(--border); display: flex; flex-direction: column; gap: 2px; }
     .clean-more .hint { margin-bottom: 6px; }
     #structReport:empty { display: none; }
@@ -269,7 +274,7 @@
 <main>
   <header class="header">
     <div>
-      <div class="eyebrow">Estudo com áudio • v4.0</div>
+      <div class="eyebrow">Estudo com áudio • v4.1</div>
       <h1>Leitor de Estudo Ativo</h1>
       <p class="subtitle">Ouça, acompanhe a frase em destaque e retome de onde quiser.</p>
     </div>
@@ -404,6 +409,19 @@
       <button id="btnIleCancel" type="button" hidden>✕ Cancelar</button>
       <button id="btnIleListen" type="button" hidden>🔊 Ouvir o resumo</button>
     </div>
+    <details id="gemBox" class="gem-box" hidden>
+      <summary id="gemSummary">🔑 Gerar com o Google Gemini (fora do Claude)</summary>
+      <p class="hint">Crie uma chave gratuita em <a href="https://aistudio.google.com/apikey" target="_blank" rel="noopener">aistudio.google.com/apikey</a> e cole abaixo. Ela fica salva só neste aparelho e é enviada apenas ao Google.</p>
+      <div class="search-row">
+        <input type="password" id="gemKey" placeholder="Cole aqui a chave (começa com AIza…)" autocomplete="off" spellcheck="false">
+        <button type="button" id="gemSave" class="primary">Salvar</button>
+      </div>
+      <div class="search-row" style="margin-top:8px">
+        <select id="gemModel" aria-label="Modelo do Gemini"><option value="">Modelo: escolhido automaticamente</option></select>
+        <button type="button" id="gemRemove">Remover chave</button>
+      </div>
+      <p class="hint" id="gemStatus"></p>
+    </details>
     <p id="ileStatus" class="status" role="status" aria-live="polite"></p>
     <div id="ileOut" class="ile-out"></div>
   </section>
@@ -1482,7 +1500,8 @@ ${text}
     } catch (error) {
       if (controller.signal.aborted || error?.name === 'AbortError') { ileStatus('Geração cancelada.'); return null; }
       if (error?.code === 'not_granted') ileStatus('Permissão não concedida para gerar conteúdo com o Claude.', true);
-      else if (error?.code === 'rate_limited') ileStatus('Muitas solicitações em pouco tempo. Aguarde um minuto e tente de novo.', true);
+      else if (error?.code === 'rate_limited') ileStatus('Muitas solicitações em pouco tempo (' + (error.message || 'limite') + '). Aguarde um minuto e tente de novo.', true);
+      else if (error?.code === 'bad_key' || error?.code === 'forbidden') { ileStatus('Gemini: ' + error.message + '. Confira a chave em “🔑 Gerar com o Google Gemini”.', true); gemEls.box.open = true; }
       else ileStatus('Não foi possível gerar: ' + (error?.message || 'erro desconhecido') + '. Tente novamente.', true);
       return null;
     } finally {
@@ -1706,10 +1725,92 @@ ${text}
   ile.btnQuestions.addEventListener('click', generateQuestions);
 
   // Sem acesso ao Claude (ex.: arquivo baixado), oferece um prompt para copiar e colar no Claude.
+
+  // ---------- Google Gemini (geração fora do Claude) ----------
+  const GEM_API = 'https://generativelanguage.googleapis.com/v1beta/';
+  const gem = { key: loadSetting('gemini-key', ''), model: loadSetting('gemini-model', ''), models: [] };
+  const gemEls = { box: $('gemBox'), key: $('gemKey'), save: $('gemSave'), model: $('gemModel'), remove: $('gemRemove'), status: $('gemStatus'), summary: $('gemSummary') };
+  function gemError(res, body) {
+    const msg = body?.error?.message || ('HTTP ' + res.status);
+    if (res.status === 429) return { code: 'rate_limited', message: 'limite gratuito do Gemini atingido; aguarde um minuto' };
+    if (res.status === 400 && /API key/i.test(msg)) return { code: 'bad_key', message: 'chave do Gemini inválida' };
+    if (res.status === 403) return { code: 'forbidden', message: 'chave sem permissão para a API do Gemini' };
+    return { code: 'gemini', message: msg };
+  }
+  async function gemListModels(key) {
+    const res = await fetch(GEM_API + 'models?pageSize=200', { headers: { 'x-goog-api-key': key } });
+    const body = await res.json().catch(() => ({}));
+    if (!res.ok) throw gemError(res, body);
+    const ok = (body.models || []).filter(m => (m.supportedGenerationMethods || []).includes('generateContent')
+      && /gemini/i.test(m.name) && !/(image|tts|audio|live|embedding|vision|robotics|computer|thinking-exp)/i.test(m.name));
+    const ver = m => parseFloat((m.name.match(/gemini-(\d+(?:\.\d+)?)/) || [])[1] || 0);
+    const score = m => (/flash/i.test(m.name) && !/lite/i.test(m.name) ? 3 : /flash/i.test(m.name) ? 2 : /pro/i.test(m.name) ? 1 : 0) * 100
+      + ver(m) * 10 - (/(preview|exp)/i.test(m.name) ? 5 : 0) - (/latest/i.test(m.name) ? 1 : 0);
+    return ok.sort((a, b) => score(b) - score(a)).map(m => ({ id: m.name.replace(/^models\//, ''), label: m.displayName || m.name }));
+  }
+  async function gemSample(prompt, opts = {}) {
+    const model = gem.model || gem.models[0]?.id;
+    if (!gem.key || !model) throw { code: 'bad_key', message: 'configure a chave do Gemini' };
+    const res = await fetch(GEM_API + 'models/' + encodeURIComponent(model) + ':generateContent', {
+      method: 'POST', signal: opts.signal,
+      headers: { 'Content-Type': 'application/json', 'x-goog-api-key': gem.key },
+      body: JSON.stringify({ contents: [{ role: 'user', parts: [{ text: String(prompt) }] }], generationConfig: { temperature: 0.4, responseMimeType: 'application/json' } })
+    });
+    const body = await res.json().catch(() => ({}));
+    if (!res.ok) throw gemError(res, body);
+    const text = (body.candidates?.[0]?.content?.parts || []).map(p => p.text || '').join('');
+    if (!text) throw { code: 'gemini', message: body.promptFeedback?.blockReason ? 'conteúdo bloqueado pelo Gemini' : 'resposta vazia do Gemini' };
+    return { text };
+  }
+  function gemRenderModels() {
+    gemEls.model.replaceChildren(...gem.models.map(m => new Option(`${m.label} (${m.id})`, m.id)));
+    if (!gem.models.length) gemEls.model.append(new Option('Modelo: escolhido automaticamente', ''));
+    if (gem.model && gem.models.some(m => m.id === gem.model)) gemEls.model.value = gem.model;
+    else gem.model = gem.models[0]?.id || '';
+  }
+  async function gemConnect(key, quiet = false) {
+    gemEls.status.textContent = 'Verificando a chave…';
+    try {
+      gem.models = await gemListModels(key);
+      if (!gem.models.length) throw { message: 'nenhum modelo de texto disponível para esta chave' };
+      gem.key = key; saveSetting('gemini-key', key);
+      gemRenderModels(); saveSetting('gemini-model', gem.model);
+      gemEls.key.value = ''; gemEls.key.placeholder = 'Chave salva • cole outra para trocar';
+      gemEls.status.textContent = `✓ Conectado ao Gemini • modelo ${gem.model}`;
+      gemEls.summary.textContent = '🔑 Gemini conectado';
+      ileStatus('Pronto: resumo e questões serão gerados pelo Google Gemini.');
+      return true;
+    } catch (error) {
+      gemEls.status.textContent = '✗ ' + (error.message || 'não foi possível conectar');
+      if (!quiet) gemEls.box.open = true;
+      return false;
+    }
+  }
+  gemEls.save.addEventListener('click', () => {
+    const key = gemEls.key.value.trim();
+    if (!key) { gemEls.status.textContent = 'Cole a chave no campo antes de salvar.'; return; }
+    gemConnect(key);
+  });
+  gemEls.key.addEventListener('keydown', e => { if (e.key === 'Enter') { e.preventDefault(); gemEls.save.click(); } });
+  gemEls.model.addEventListener('change', () => { gem.model = gemEls.model.value; saveSetting('gemini-model', gem.model); gemEls.status.textContent = `✓ Modelo ${gem.model}`; });
+  gemEls.remove.addEventListener('click', () => {
+    gem.key = ''; gem.models = []; gem.model = '';
+    saveSetting('gemini-key', ''); saveSetting('gemini-model', '');
+    gemRenderModels(); gemEls.key.placeholder = 'Cole aqui a chave (começa com AIza…)';
+    gemEls.status.textContent = 'Chave removida deste aparelho.'; gemEls.summary.textContent = '🔑 Gerar com o Google Gemini (fora do Claude)';
+    ileStatus('Sem chave: os botões criam um prompt para usar no Claude.');
+  });
   function enableFallback() {
     ile.ready = false;
+    gemEls.box.hidden = false;
+    if (gem.key) gemConnect(gem.key, true);
+    else gemEls.box.open = true;
     ile.btnSummary.disabled = false; ile.btnQuestions.disabled = false;
     const handler = kind => opts => {
+      if (gem.key) { // Com chave do Gemini, gera direto no app.
+        ile.sample = gemSample; ile.ready = true;
+        return kind === 'summary' ? generateSummary(opts) : generateQuestions(opts);
+      }
       const t = checkText(scopeOf(opts)); if (!t) return;
       const prompt = kind === 'summary' ? summaryPrompt(t.text, ile.focus.value.trim())
         : questionsPrompt(t.text, ile.focus.value.trim(), Number(ile.count.value) || 10, ile.style.value);
@@ -1721,7 +1822,7 @@ ${text}
       });
       ile.out.replaceChildren(el('div', { class: 'card' },
         el('span', { class: 'tag', text: 'Modo offline' }),
-        el('p', { text: 'Fora da página publicada no Claude, a geração automática não está disponível. Copie o prompt abaixo e cole numa conversa com o Claude.' }),
+        el('p', { text: 'Sem chave do Gemini, copie o prompt abaixo e cole numa conversa com o Claude. Ou configure a chave em “🔑 Gerar com o Google Gemini” para gerar direto aqui.' }),
         box, el('div', { class: 'q-actions' }, copy)));
     };
     ile.btnSummary.replaceWith(ile.btnSummary = ile.btnSummary.cloneNode(true));
@@ -1729,7 +1830,7 @@ ${text}
     ile.btnSummary.addEventListener('click', handler('summary'));
     ile.btnQuestions.addEventListener('click', handler('questions'));
     ile.run = (kind, scope) => handler(kind)(scope);
-    ileStatus('Geração automática indisponível aqui: os botões criam um prompt para usar no Claude.');
+    if (!gem.key) ileStatus('Configure a chave do Gemini abaixo para gerar aqui, ou use os botões para criar um prompt para o Claude.');
   }
   // Ponto único para gerar (usado pelo botão do modo livro e por "Gerar novas").
   ile.run = (kind, scope) => (kind === 'summary' ? generateSummary(scope) : generateQuestions(scope));
