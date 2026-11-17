@@ -16,7 +16,7 @@
   <meta name="mobile-web-app-capable" content="yes">
   <meta name="apple-mobile-web-app-title" content="Leitor Ativo">
   <meta name="apple-mobile-web-app-status-bar-style" content="default">
-  <title>Leitor de Estudo Ativo • Versão 4.3</title>
+  <title>Leitor de Estudo Ativo • Versão 4.4</title>
   <!-- PDF.js (módulo moderno) é carregado somente ao abrir PDFs. Biblioteca e worker usam a mesma versão. -->
   <style>
     :root {
@@ -96,6 +96,7 @@
     .img-viewer.zoom { align-items: flex-start; justify-content: flex-start; }
     .img-viewer.zoom img { max-width: none; max-height: none; width: 200%; cursor: zoom-out; }
     .img-viewer-close { position: fixed; top: calc(env(safe-area-inset-top, 0px) + 10px); right: 12px; z-index: 1; background: rgba(255, 255, 255, .15) !important; color: #fff !important; border-color: transparent !important; }
+    #btnFromFile.suggest { border-color: var(--primary); box-shadow: inset 0 0 0 1px var(--primary); }
     .gem-box { margin-top: 14px; border: 1px solid var(--border); border-radius: 10px; padding: 10px 14px; background: var(--surface-2); }
     .gem-box summary { cursor: pointer; font-weight: 700; }
     .gem-box input[type=password] { flex: 1; min-width: 150px; color: var(--text); background: var(--surface); border: 1px solid var(--border); border-radius: 9px; padding: 10px 12px; }
@@ -274,7 +275,7 @@
 <main>
   <header class="header">
     <div>
-      <div class="eyebrow">Estudo com áudio • v4.3</div>
+      <div class="eyebrow">Estudo com áudio • v4.4</div>
       <h1>Leitor de Estudo Ativo</h1>
       <p class="subtitle">Ouça, acompanhe a frase em destaque e retome de onde quiser.</p>
     </div>
@@ -406,6 +407,7 @@
     <div class="toolbar">
       <button class="primary" id="btnSummary" type="button">📝 Gerar resumo</button>
       <button class="primary" id="btnQuestions" type="button">❓ Gerar questões I-L-E</button>
+      <button id="btnFromFile" type="button" title="Usa as questões que já existem no arquivo e aplica o Método I-L-E">📋 Usar questões do arquivo</button>
       <button id="btnIleCancel" type="button" hidden>✕ Cancelar</button>
       <button id="btnIleListen" type="button" hidden>🔊 Ouvir o resumo</button>
     </div>
@@ -499,6 +501,7 @@
       <button type="button" data-qstyle="multipla">Múltipla (A–E)</button><button type="button" data-qstyle="ce">Certo/Errado</button></div></div>
     <div class="bk-seg bk-col">
       <button type="button" id="bkIleGo" class="bk-go">❓ Gerar questões</button>
+      <button type="button" id="bkIleFile">📋 Usar questões do arquivo</button>
       <button type="button" id="bkIleSum">📝 Gerar resumo deste conteúdo</button></div>
   </div>
   <div class="book-sheet left" id="bkLibSheet" hidden><strong>📚 Arquivos</strong><ol id="bkLibList" class="lib-list" style="margin-top:10px"></ol><button type="button" id="bkLibAdd" style="width:100%;margin-top:10px">＋ Adicionar arquivos</button></div>
@@ -901,6 +904,7 @@
     setActive(0, false);
     controls();
     status(`${state.blocks.length} ${state.blocks.length === 1 ? 'frase preparada' : 'frases preparadas'}. Clique em Reproduzir ou numa frase para começar.${structureNote()}`);
+    hooks.prepared?.();
   }
   els.btnPrepare.addEventListener('click', prepare);
 
@@ -1447,6 +1451,32 @@
     return { text: raw.slice(0, MAX_CHARS), cut: raw.length > MAX_CHARS, empty: !raw };
   }
   const ILE_RULES = `Você é um professor especialista em concursos públicos brasileiros (tribunais de contas, controle externo, TI). Trabalhe SOMENTE com o conteúdo do MATERIAL fornecido; não invente fatos que não estejam nele. Escreva em português do Brasil.`;
+  function extractPrompt(text, focus) {
+    return `${ILE_RULES}
+O MATERIAL contém QUESTÕES DE PROVA já prontas (por exemplo, de concursos anteriores ou exercícios de fixação). Sua tarefa é EXTRAIR essas questões${focus ? ` (priorize as sobre: "${focus}")` : ''} e aplicar a cada uma o MÉTODO I-L-E. NÃO invente questões novas.
+Regras:
+- Copie o enunciado e as alternativas fielmente (pode corrigir só quebras de linha e hifenização). Inclua no enunciado a banca/ano se aparecerem.
+- Questões de Certo/Errado (Cebraspe): alternativas [{"letra":"C","texto":"Certo"},{"letra":"E","texto":"Errado"}].
+- Gabarito: se o material trouxer o gabarito (ao lado, no fim ou em "Gabarito:"), use-o e marque "gabarito_do_arquivo": true. Se não trouxer, resolva a questão e marque "gabarito_do_arquivo": false.
+- I (Identificar): o comando exato (ex.: "assinale a INCORRETA") e as palavras-chave.
+- L (Localizar): um TRECHO COPIADO LITERALMENTE da parte teórica do material (ou do comentário da questão, se houver) que sustenta a resposta. Se o material não tiver teoria sobre o tema, use o comentário/resolução e diga isso em "explicacao".
+- E (Eliminar): para cada alternativa errada, o motivo exato do erro.
+- Extraia no máximo 20 questões, na ordem em que aparecem.
+Se o material NÃO contiver questões prontas, responda {"questoes":[]}.
+Responda APENAS com JSON válido, sem markdown:
+{"questoes":[{"numero":"número original ou vazio","enunciado":"string","alternativas":[{"letra":"A","texto":"string"}],"correta":"letra","gabarito_do_arquivo":true,"identificar":{"comando":"string","palavras_chave":["string"]},"localizar":{"trecho":"citação literal do material","explicacao":"string"},"eliminar":[{"letra":"letra","motivo":"string"}],"dica":"string curta sem entregar a resposta"}]}
+
+MATERIAL:
+"""
+${text}
+"""`;
+  }
+  // Detecta se o texto parece conter questões prontas (alternativas A–E, gabarito, "julgue o item"...).
+  function looksLikeQuiz(text) {
+    const alts = (text.match(/(?:^|\n)\s*\(?[A-Ea-e]\s*[\)\.\-–]\s+\S/g) || []).length;
+    const keys = (text.match(/gabarito|julgue o item|assinale a (?:alternativa|op[çc][ãa]o)|quest[ãa]o\s*\d+|\((?:CESPE|CEBRASPE|FCC|VUNESP|FGV|FUNDATEC)/gi) || []).length;
+    return alts >= 8 || (alts >= 4 && keys >= 1) || keys >= 3;
+  }
   function summaryPrompt(text, focus) {
     return `${ILE_RULES}
 Produza um RESUMO DE ESTUDO do material${focus ? `, com foco em: "${focus}"` : ''}.
@@ -1512,6 +1542,7 @@ ${text}
   function setIleBusy(busy) {
     ile.btnSummary.disabled = busy || !ile.ready;
     ile.btnQuestions.disabled = busy || !ile.ready;
+    $('btnFromFile').disabled = busy || !ile.ready;
     ile.btnCancel.hidden = !busy;
   }
   ile.btnCancel.addEventListener('click', () => { ile.controller?.abort(); });
@@ -1576,12 +1607,27 @@ ${text}
     ile.lastScope = scope;
     const t = checkText(scope); if (!t) return;
     const count = Number(ile.count.value) || 10, style = ile.style.value;
+    ile.lastKind = 'questions';
     const data = await ask(questionsPrompt(t.text, ile.focus.value.trim(), count, style), `Gerando ${count} questões`);
     if (!data) return;
     const list = (data.questoes || []).filter(q => q && q.enunciado && Array.isArray(q.alternativas) && q.alternativas.length >= 2);
     if (!list.length) { ileStatus('Não vieram questões válidas. Tente novamente.', true); return; }
     renderQuestions(list);
     ileStatus(`${list.length} ${list.length === 1 ? 'questão pronta' : 'questões prontas'}.${scopeNote(scope)}${t.cut ? ' Texto longo: foram usados os primeiros 90 mil caracteres.' : ''} Elimine alternativas com ✕ antes de responder.`);
+  }
+
+  async function generateFromFile(opts) {
+    const scope = scopeOf(opts);
+    ile.lastScope = scope; ile.lastKind = 'extract';
+    const t = checkText(scope); if (!t) return;
+    const data = await ask(extractPrompt(t.text, ile.focus.value.trim()), 'Lendo as questões do arquivo');
+    if (!data) return;
+    const list = (data.questoes || []).filter(q => q && q.enunciado && Array.isArray(q.alternativas) && q.alternativas.length >= 2)
+      .map(q => ({ ...q, origem: 'arquivo' }));
+    if (!list.length) { ileStatus('Não encontrei questões prontas neste conteúdo. Use “❓ Gerar questões I-L-E” para criar novas.', true); return; }
+    renderQuestions(list);
+    const own = list.filter(q => q.gabarito_do_arquivo !== false).length;
+    ileStatus(`${list.length} ${list.length === 1 ? 'questão do arquivo' : 'questões do arquivo'} com I-L-E.${scopeNote(scope)} Gabarito do próprio arquivo em ${own} de ${list.length}.${t.cut ? ' Texto longo: foram usados os primeiros 90 mil caracteres.' : ''}`);
   }
 
   // Localiza no leitor a frase que contém o trecho citado.
@@ -1627,7 +1673,7 @@ ${text}
     ile.score = { answered: 0, right: 0, total: list.length };
     const frag = document.createDocumentFragment();
     frag.append(el('div', { class: 'scorebar' }, el('span', { id: 'ileScore' }),
-      el('button', { type: 'button', text: '↻ Gerar novas', onclick: () => ile.run('questions', ile.lastScope) })));
+      (ile.lastKind === 'extract' ? null : el('button', { type: 'button', text: '↻ Gerar novas', onclick: () => ile.run('questions', ile.lastScope) }))));
     list.forEach((q, i) => frag.append(questionCard(q, i, list.length)));
     ile.out.replaceChildren(frag);
     updateScore();
@@ -1637,7 +1683,8 @@ ${text}
     const correct = String(q.correta || '').trim().toUpperCase().charAt(0);
     let chosen = null, answered = false;
     const card = el('div', { class: 'card' });
-    card.append(el('span', { class: 'tag', text: `Questão ${i + 1} de ${total}` }), el('p', { class: 'q-stem', text: q.enunciado }));
+    const tagText = q.origem === 'arquivo' ? `Questão do arquivo${q.numero ? ' nº ' + q.numero : ''} • ${i + 1} de ${total}` : `Questão ${i + 1} de ${total}`;
+    card.append(el('span', { class: 'tag', text: tagText }), el('p', { class: 'q-stem', text: q.enunciado }));
     const alts = el('div', { class: 'alts', role: 'radiogroup', 'aria-label': `Alternativas da questão ${i + 1}` });
     const rows = [];
     for (const a of q.alternativas) {
@@ -1716,6 +1763,9 @@ ${text}
           ? `Atenção: você eliminou a alternativa correta (${correct}). Volte ao trecho localizado.`
           : `Boa eliminação: você descartou ${myElims.join(', ')} corretamente.` }));
       }
+      if (q.origem === 'arquivo') box.append(el('p', { class: 'hint', style: 'margin:6px 0 0', text: q.gabarito_do_arquivo === false
+        ? '⚠ O arquivo não traz o gabarito desta questão: a resposta foi definida pela IA. Confira no material.'
+        : '✓ Gabarito conforme o próprio arquivo.' }));
       box.dataset.step = 'E'; steps.append(box);
     });
     card.append(el('div', { class: 'q-actions' }, btnI, btnL, btnAnswer), steps);
@@ -1833,14 +1883,15 @@ ${text}
     gemEls.box.hidden = false;
     if (gem.key) gemConnect(gem.key, true);
     else gemEls.box.open = true;
-    ile.btnSummary.disabled = false; ile.btnQuestions.disabled = false;
+    ile.btnSummary.disabled = false; ile.btnQuestions.disabled = false; $('btnFromFile').disabled = false;
     const handler = kind => opts => {
       if (gem.key) { // Com chave do Gemini, gera direto no app.
         ile.sample = gemSample; ile.ready = true;
-        return kind === 'summary' ? generateSummary(opts) : generateQuestions(opts);
+        return kind === 'summary' ? generateSummary(opts) : kind === 'extract' ? generateFromFile(opts) : generateQuestions(opts);
       }
       const t = checkText(scopeOf(opts)); if (!t) return;
       const prompt = kind === 'summary' ? summaryPrompt(t.text, ile.focus.value.trim())
+        : kind === 'extract' ? extractPrompt(t.text, ile.focus.value.trim())
         : questionsPrompt(t.text, ile.focus.value.trim(), Number(ile.count.value) || 10, ile.style.value);
       const box = el('textarea', { class: 'prompt-box', readonly: '' }); box.value = prompt;
       const copy = el('button', { type: 'button', class: 'primary', text: '📋 Copiar prompt' });
@@ -1861,7 +1912,9 @@ ${text}
     if (!gem.key) ileStatus('Configure a chave do Gemini abaixo para gerar aqui, ou use os botões para criar um prompt para o Claude.');
   }
   // Ponto único para gerar (usado pelo botão do modo livro e por "Gerar novas").
-  ile.run = (kind, scope) => (kind === 'summary' ? generateSummary(scope) : generateQuestions(scope));
+  ile.run = (kind, scope) => (kind === 'summary' ? generateSummary(scope) : kind === 'extract' ? generateFromFile(scope) : generateQuestions(scope));
+  $('btnFromFile').addEventListener('click', () => ile.run('extract'));
+  $('btnFromFile').disabled = true;
   ile.btnSummary.disabled = true; ile.btnQuestions.disabled = true;
   ileStatus('Conectando ao Claude…');
   (async () => {
@@ -2282,6 +2335,7 @@ ${text}
   }
   $('bkIleGo').addEventListener('click', () => bkRunIle('questions'));
   $('bkIleSum').addEventListener('click', () => bkRunIle('summary'));
+  $('bkIleFile').addEventListener('click', () => bkRunIle('extract'));
   $('btnGoIle').addEventListener('click', () => {
     ile.out.closest('section')?.scrollIntoView({ behavior: 'smooth', block: 'start' });
     setTimeout(() => ile.btnQuestions.focus({ preventScroll: true }), 400);
@@ -3103,6 +3157,15 @@ ${text}
   els.speedRange.addEventListener('input', () => { if (nv.audio) nv.audio.playbackRate = Number(els.speedRange.value) || 1; });
   els.voiceSelect.addEventListener('change', () => { if (usingNeural()) nvInit(els.voiceSelect.value.slice(7)); });
   nvAddVoices();
+
+  // Destaca “Usar questões do arquivo” quando o texto aberto parece ter questões.
+  hooks.prepared = () => {
+    const quiz = looksLikeQuiz(els.textInput.value || '');
+    const btn = $('btnFromFile');
+    btn.classList.toggle('suggest', quiz);
+    btn.textContent = quiz ? '📋 Usar as questões deste arquivo' : '📋 Usar questões do arquivo';
+    if (quiz) status(els.statusMsg.textContent + ' 📋 Este arquivo parece ter questões: use “Usar as questões deste arquivo” no Método I-L-E.');
+  };
 
   progress(); controls();
   if (!hasSpeech) status('Este navegador não oferece síntese de voz; tente Chrome ou Edge atualizado.', true);
