@@ -16,7 +16,7 @@
   <meta name="mobile-web-app-capable" content="yes">
   <meta name="apple-mobile-web-app-title" content="Leitor Ativo">
   <meta name="apple-mobile-web-app-status-bar-style" content="default">
-  <title>Leitor de Estudo Ativo • Versão 3.7</title>
+  <title>Leitor de Estudo Ativo • Versão 3.8</title>
   <!-- PDF.js (módulo moderno) é carregado somente ao abrir PDFs. Biblioteca e worker usam a mesma versão. -->
   <style>
     :root {
@@ -269,7 +269,7 @@
 <main>
   <header class="header">
     <div>
-      <div class="eyebrow">Estudo com áudio • v3.7</div>
+      <div class="eyebrow">Estudo com áudio • v3.8</div>
       <h1>Leitor de Estudo Ativo</h1>
       <p class="subtitle">Ouça, acompanhe a frase em destaque e retome de onde quiser.</p>
     </div>
@@ -603,7 +603,9 @@
     const voices = synth.getVoices();
     const current = els.voiceSelect.value || loadSetting('voice', '');
     const ordered = [...voices].sort((a, b) => {
-      const priority = v => /^pt-BR$/i.test(v.lang) ? 0 : /^pt(-|$)/i.test(v.lang) ? 1 : 2;
+      // Alguns Android informam o idioma como "pt_BR" (com sublinhado).
+      const lang = v => String(v.lang || '').replace('_', '-');
+      const priority = v => /^pt-BR$/i.test(lang(v)) ? 0 : /^pt(-|$)/i.test(lang(v)) ? 1 : 2;
       return priority(a) - priority(b) || a.name.localeCompare(b.name, 'pt-BR');
     });
     els.voiceSelect.replaceChildren();
@@ -617,7 +619,9 @@
       const option = new Option(`${voice.name} (${voice.lang})${voice.localService ? ' • dispositivo' : ''}`, voiceKey(voice));
       els.voiceSelect.add(option);
     }
-    const found = ordered.some(v => voiceKey(v) === current);
+    // Uma voz salva que não é em português (ex.: escolhida por engano) é trocada pela melhor em português.
+    const savedVoice = ordered.find(v => voiceKey(v) === current);
+    const found = !!savedVoice && (priority(savedVoice) < 2 || priority(ordered[0]) === 2 || loadSetting('voice-manual', '') === 'yes');
     els.voiceSelect.value = found ? current : voiceKey(ordered[0]);
     hooks.voices?.();
   }
@@ -627,7 +631,7 @@
     // Compatibilidade com versões que não implementam addEventListener.
     if (!synth.addEventListener) synth.onvoiceschanged = populateVoices;
   }
-  els.voiceSelect.addEventListener('change', () => saveSetting('voice', els.voiceSelect.value));
+  els.voiceSelect.addEventListener('change', () => { saveSetting('voice', els.voiceSelect.value); saveSetting('voice-manual', 'yes'); });
 
   function normalizeText(raw) {
     return raw.replace(/\r\n?/g, '\n').replace(/\u00AD/g, '')
