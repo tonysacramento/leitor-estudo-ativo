@@ -16,7 +16,7 @@
   <meta name="mobile-web-app-capable" content="yes">
   <meta name="apple-mobile-web-app-title" content="Leitor Ativo">
   <meta name="apple-mobile-web-app-status-bar-style" content="default">
-  <title>Leitor de Estudo Ativo • Versão 6.3</title>
+  <title>Leitor de Estudo Ativo • Versão 6.4</title>
   <!-- PDF.js (módulo moderno) é carregado somente ao abrir PDFs. Biblioteca e worker usam a mesma versão. -->
   <style>
     :root {
@@ -317,7 +317,11 @@
     .lib-backdrop[hidden] { display: none; }
     .bkp { order: 99; margin-top: 14px; padding-top: 12px; border-top: 1px solid var(--border); display: grid; gap: 6px; }
     .bkp p { margin: 0; }
-    #bkpStatus.error { color: #b3261e; }
+    #bkpStatus.error, #gdStatus.error { color: #b3261e; }
+    .gd { display: grid; gap: 6px; margin-top: 10px; padding-top: 10px; border-top: 1px dashed var(--border); }
+    .gd > div { display: grid; gap: 6px; }
+    .gd [hidden] { display: none; }
+    #gdClient { padding: 8px 10px; border: 1px solid var(--border); border-radius: 9px; background: var(--surface); color: var(--text); font: inherit; font-size: .82rem; }
     .lib-head { display: flex; justify-content: space-between; align-items: center; gap: 8px; }
     .lib-head strong { font-size: 1.05rem; }
     .lib-close { padding: 6px 10px; }
@@ -405,6 +409,20 @@
     <div class="lib-row"><button type="button" id="bkpExport" class="lib-add">💾 Salvar backup</button><button type="button" id="bkpImport" class="lib-add">📥 Restaurar backup</button></div>
     <input type="file" id="bkpFile" class="file-input-hidden" accept=".json,application/json" aria-hidden="true" tabindex="-1">
     <p class="hint" id="bkpStatus" role="status"></p>
+    <div class="gd" id="gdBox">
+      <strong>☁ Sincronizar pelo Google Drive</strong>
+      <p class="hint" id="gdNA" hidden>A sincronização automática funciona no app do GitHub (tonysacramento.github.io/leitor-estudo-ativo). Aqui, use o backup acima.</p>
+      <div id="gdSetup">
+        <p class="hint">Celular e PC ficam iguais sozinhos: o app guarda tudo numa pasta oculta do seu Google Drive. Cole o ID do cliente que você criou no Google Cloud.</p>
+        <input type="text" id="gdClient" placeholder="xxxx.apps.googleusercontent.com" aria-label="ID do cliente OAuth do Google" autocomplete="off" spellcheck="false">
+        <button type="button" id="gdConnect" class="lib-add primary">☁ Conectar Google Drive</button>
+      </div>
+      <div id="gdOn" hidden>
+        <p class="hint" id="gdLast"></p>
+        <div class="lib-row"><button type="button" id="gdSyncNow" class="lib-add">🔄 Sincronizar agora</button><button type="button" id="gdOff" class="lib-add">Desconectar</button></div>
+      </div>
+      <p class="hint" id="gdStatus" role="status"></p>
+    </div>
   </div>
   <p id="libEmpty" class="hint">Nenhum arquivo ainda. Suba uma pasta (cada subpasta vira uma matéria) ou vários PDFs: eles ficam guardados aqui e cada matéria é preparada quando você toca nela.</p>
 </aside>
@@ -412,14 +430,15 @@
 <main>
   <header class="header">
     <div>
-      <div class="eyebrow">Estudo com áudio • v6.3</div>
+      <div class="eyebrow">Estudo com áudio • v6.4</div>
       <h1>Leitor de Estudo Ativo</h1>
       <p class="subtitle">Ouça, acompanhe a frase em destaque e retome de onde quiser.</p>
     </div>
     <div class="button-group">
       <button id="btnInstall" type="button" hidden>⬇ Instalar app</button>
       <button id="btnLib" type="button" aria-label="Abrir a lista de arquivos">📚 Arquivos<span class="lib-badge" id="libCount"></span></button>
-    <button id="btnPomo" type="button" title="Pomodoro" aria-label="Pomodoro">🍅</button>
+    <button id="btnSync" type="button" hidden aria-label="Sincronizar com o Google Drive">☁</button>
+      <button id="btnPomo" type="button" title="Pomodoro" aria-label="Pomodoro">🍅</button>
       <button id="btnPerfil" type="button" title="Seu perfil de estudo">👤 Perfil</button>
       <button id="btnTheme" type="button" aria-label="Alternar modo claro e escuro" title="Alternar tema">◐ Tema</button>
     </div>
@@ -858,8 +877,10 @@
     try { return localStorage.getItem('leitor-ativo-' + key) ?? fallback; }
     catch (_) { return fallback; }
   }
+  var syncDirty = () => {};
   function saveSetting(key, value) {
     try { localStorage.setItem('leitor-ativo-' + key, String(value)); } catch (_) {}
+    syncDirty(key);
   }
   function setTheme(theme) {
     const applied = theme === 'dark' ? 'dark' : 'light';
@@ -5094,6 +5115,178 @@ ${t.text}
   $('bkpExport').addEventListener('click', () => backupExport().catch(e => bkpStatus('Erro ao montar o backup: ' + (e?.message || e), true)));
   $('bkpImport').addEventListener('click', () => $('bkpFile').click());
   $('bkpFile').addEventListener('change', e => { backupImport(e.target.files[0]).catch(err => bkpStatus('Erro ao restaurar: ' + (err?.message || err), true)); e.target.value = ''; });
+
+  // ===================== ☁ Sincronizar pelo Google Drive (pasta oculta do app) =====================
+  const gd = {
+    clientId: loadSetting('gdrive-client', ''), token: null, exp: 0, busy: false, timer: null,
+    dirty: loadSetting('sync-dirty', '') === '1', lastSync: Number(loadSetting('sync-at', '0')) || 0,
+    available: /github\.io$|^localhost$|^127\./.test(location.hostname)
+  };
+  try { const t = JSON.parse(loadSetting('gdrive-token', 'null')); if (t?.exp > Date.now() + 60000) { gd.token = t.access_token; gd.exp = t.exp; } } catch (_) {}
+  const SYNC_SKIP = /^leitor-ativo-(gemini-key|gdrive-|sync-)/;
+  syncDirty = key => {
+    if (key && SYNC_SKIP.test('leitor-ativo-' + key)) return;
+    if (!gd.connected) return;
+    if (!gd.dirty) { gd.dirty = true; try { localStorage.setItem('leitor-ativo-sync-dirty', '1'); } catch (_) {} }
+    gdDraw();
+    clearTimeout(gd.timer); gd.timer = setTimeout(() => gdSync({ quiet: true }), 45000);
+  };
+  for (const k of ['put', 'del', 'putImage', 'putFile', 'delFile', 'delImagesOf']) { const f = libDb[k]; libDb[k] = (...a) => { syncDirty(); return f(...a); }; }
+  Object.defineProperty(gd, 'connected', { get: () => !!gd.clientId && loadSetting('gdrive-on', '') === '1' });
+  const gdValid = () => gd.token && gd.exp > Date.now() + 30000;
+  const gdStatus = (msg, err) => { const s = $('gdStatus'); if (s) { s.textContent = msg; s.classList.toggle('error', !!err); } };
+  const when = t => t ? new Date(t).toLocaleString('pt-BR', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' }) : 'nunca';
+  function gdDraw() {
+    const b = $('btnSync'), on = gd.connected && gd.available;
+    b.hidden = !on;
+    $('gdSetup').hidden = !gd.available || gd.connected; $('gdOn').hidden = !gd.available || !gd.connected; $('gdNA').hidden = gd.available;
+    if (!on) return;
+    b.textContent = gd.busy ? '☁ …' : gd.dirty ? '☁ ↑' : '☁ ✓';
+    b.title = gd.busy ? 'Sincronizando…' : gd.dirty ? 'Há mudanças para enviar ao Drive: toque para sincronizar' : `Sincronizado (${when(gd.lastSync)})`;
+    $('gdLast').textContent = `Última sincronização: ${when(gd.lastSync)}${gd.dirty ? ' • mudanças a enviar' : ''}`;
+  }
+  let gisLoading = null;
+  const loadGis = () => gisLoading || (gisLoading = new Promise((res, rej) => {
+    if (window.google?.accounts?.oauth2) return res();
+    const s = document.createElement('script'); s.src = 'https://accounts.google.com/gsi/client'; s.async = true;
+    s.onload = () => res(); s.onerror = () => { gisLoading = null; rej(new Error('sem conexão com o Google')); }; document.head.append(s);
+  }));
+  // Pede um acesso ao Drive (vale 1 hora). Precisa de um toque do usuário quando o anterior venceu.
+  async function gdAuth(prompt = '') {
+    if (gdValid()) return gd.token;
+    await loadGis();
+    return new Promise((resolve, reject) => {
+      const client = google.accounts.oauth2.initTokenClient({
+        client_id: gd.clientId, scope: 'https://www.googleapis.com/auth/drive.appdata',
+        callback: r => {
+          if (r.error || !r.access_token) return reject(new Error(r.error_description || r.error || 'acesso negado'));
+          gd.token = r.access_token; gd.exp = Date.now() + (Number(r.expires_in) || 3600) * 1000;
+          saveSetting('gdrive-token', JSON.stringify({ access_token: gd.token, exp: gd.exp }));
+          resolve(gd.token);
+        },
+        error_callback: e => reject(new Error(e?.type === 'popup_closed' ? 'janela do Google fechada' : e?.type === 'popup_failed_to_open' ? 'o navegador bloqueou a janela do Google' : (e?.message || 'falha no login')))
+      });
+      client.requestAccessToken({ prompt });
+    });
+  }
+  async function gdFetch(url, opt = {}) {
+    const res = await fetch(url, { ...opt, headers: { ...(opt.headers || {}), Authorization: 'Bearer ' + gd.token } });
+    if (res.status === 401) { gd.token = null; gd.exp = 0; saveSetting('gdrive-token', 'null'); throw Object.assign(new Error('acesso ao Drive venceu'), { code: 401 }); }
+    if (!res.ok) { let m = ''; try { m = (await res.json())?.error?.message; } catch (_) {} throw new Error(`Drive ${res.status}${m ? ': ' + m : ''}`); }
+    return res;
+  }
+  const API = 'https://www.googleapis.com/drive/v3/files', UP = 'https://www.googleapis.com/upload/drive/v3/files';
+  async function gdList() {
+    const out = []; let page = '';
+    do {
+      const r = await (await gdFetch(`${API}?spaces=appDataFolder&pageSize=1000&fields=nextPageToken,files(id,name,modifiedTime)${page ? '&pageToken=' + page : ''}`)).json();
+      out.push(...(r.files || [])); page = r.nextPageToken || '';
+    } while (page);
+    return new Map(out.map(f => [f.name, f]));
+  }
+  async function gdUpload(name, blob, existingId) {
+    let id = existingId;
+    if (!id) id = (await (await gdFetch(API, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ name, parents: ['appDataFolder'] }) })).json()).id;
+    // Envio retomável (aceita arquivos grandes); se o navegador não expõe o endereço, usa o envio simples.
+    const start = await gdFetch(`${UP}/${id}?uploadType=resumable`, { method: 'PATCH', headers: { 'Content-Type': 'application/json', 'X-Upload-Content-Type': 'application/json' }, body: '{}' });
+    const loc = start.headers.get('Location');
+    if (loc) await gdFetch(loc, { method: 'PUT', body: blob });
+    else await gdFetch(`${UP}/${id}?uploadType=media`, { method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: blob });
+    return id;
+  }
+  const gdGet = async id => (await gdFetch(`${API}/${id}?alt=media`)).text();
+  const gdDel = id => gdFetch(`${API}/${id}`, { method: 'DELETE' }).catch(() => null);
+  function localSettings() {
+    const o = {};
+    for (let i = 0; i < localStorage.length; i++) { const k = localStorage.key(i); if (k?.startsWith('leitor-ativo-') && !SYNC_SKIP.test(k)) o[k] = localStorage.getItem(k); }
+    return o;
+  }
+  async function gdPull(remote, files) {
+    const data = JSON.parse(await gdGet(remote.id));
+    for (const [k, v] of Object.entries(data.settings || {})) try { localStorage.setItem(k, v); } catch (_) {}
+    const remoteIds = new Set((data.docs || []).map(d => d.id));
+    let extras = false;
+    for (const d of await idbAll('docs')) if (!remoteIds.has(d.id)) { if ((d.added || 0) < gd.lastSync) { await libDb.del(d.id); await libDb.delFile(d.id); await libDb.delImagesOf(d.id); } else extras = true; }
+    for (const d of data.docs || []) await libDb.put(await unpackVal(d));
+    const haveF = new Set((await idbAll('files')).map(f => f.id)), haveI = new Set((await idbAll('images')).map(f => f.id));
+    let n = 0;
+    for (const [name, f] of files) {
+      const m = name.match(/^(f|i)-(.+)\.json$/); if (!m) continue;
+      if (m[1] === 'f' ? haveF.has(m[2]) : haveI.has(m[2])) continue;
+      gdStatus(`Baixando arquivos originais… (${++n})`);
+      const rec = await unpackVal(JSON.parse(await gdGet(f.id)));
+      if (m[1] === 'f') await libDb.putFile(rec); else await libDb.putImage(rec);
+    }
+    return extras;
+  }
+  async function gdPush(files) {
+    libSaveMeta(true);
+    const at = Date.now();
+    const docs = await idbAll('docs');
+    const state = { app: 'leitor-estudo-ativo', v: 1, at, device: navigator.userAgent.slice(0, 80), settings: localSettings(), docs: await Promise.all(docs.map(packVal)) };
+    await gdUpload('state.json', new Blob([JSON.stringify(state)], { type: 'application/json' }), files.get('state.json')?.id);
+    const want = new Set();
+    let n = 0;
+    for (const [store, pre] of [['files', 'f'], ['images', 'i']]) {
+      for (const rec of await idbAll(store)) {
+        const name = `${pre}-${rec.id}.json`; want.add(name);
+        if (files.has(name)) continue;
+        gdStatus(`Enviando arquivos originais… (${++n})`);
+        await gdUpload(name, new Blob([JSON.stringify(await packVal(rec))], { type: 'application/json' }));
+      }
+    }
+    for (const [name, f] of files) if (/^(f|i)-/.test(name) && !want.has(name)) await gdDel(f.id);
+    return at;
+  }
+  // Puxa do Drive o que outro aparelho mudou e envia o que mudou aqui.
+  async function gdSync({ quiet = false, interactive = false } = {}) {
+    if (!gd.connected || gd.busy) return;
+    if (!gdValid()) {
+      if (!interactive) { gdDraw(); if (!quiet) gdStatus('Toque em ☁ para entrar no Google e sincronizar.'); return; }
+      try { await gdAuth(''); } catch (e) { gdStatus('Não foi possível entrar no Google: ' + e.message, true); return; }
+    }
+    gd.busy = true; gdDraw(); clearTimeout(gd.timer);
+    try {
+      gdStatus('Sincronizando com o Google Drive…');
+      let files = await gdList();
+      const remote = files.get('state.json');
+      const remoteChanged = remote && new Date(remote.modifiedTime).getTime() > gd.lastSync + 2000;
+      let reload = false;
+      if (remoteChanged) {
+        let useRemote = true;
+        if (gd.dirty) useRemote = confirm('O Drive tem mudanças feitas em outro aparelho, e este aparelho também tem mudanças ainda não enviadas.\n\nOK = usar a versão do Drive (o outro aparelho)\nCancelar = manter a deste aparelho e enviar para o Drive');
+        if (useRemote) { gd.dirty = await gdPull(remote, files); reload = true; }
+      }
+      if (gd.dirty || !remote) { files = await gdList(); await gdPush(files); }
+      gd.lastSync = Date.now(); gd.dirty = false;
+      saveSetting('sync-at', String(gd.lastSync)); saveSetting('sync-dirty', '');
+      gdStatus(reload ? '✓ Atualizado com o outro aparelho. Recarregando…' : '✓ Tudo sincronizado com o Google Drive.');
+      if (reload) setTimeout(() => location.reload(), 900);
+      else if (!quiet) toastSync('☁ Sincronizado com o Google Drive');
+    } catch (e) {
+      gdStatus((e.code === 401 ? 'O acesso ao Drive venceu: toque em ☁ para entrar de novo.' : 'Falha ao sincronizar: ' + e.message), true);
+    } finally { gd.busy = false; gdDraw(); }
+  }
+  function toastSync(msg) { if (bk.open) bkToast(msg, 2500); else status(msg); }
+  $('btnSync').addEventListener('click', () => gdSync({ interactive: true }));
+  $('gdSyncNow').addEventListener('click', () => gdSync({ interactive: true }));
+  $('gdConnect').addEventListener('click', async () => {
+    const id = $('gdClient').value.trim() || gd.clientId;
+    if (!/\.apps\.googleusercontent\.com$/.test(id)) { gdStatus('Cole o ID do cliente OAuth (termina em .apps.googleusercontent.com).', true); return; }
+    gd.clientId = id; saveSetting('gdrive-client', id);
+    try { await gdAuth('consent'); } catch (e) { gdStatus('Não foi possível conectar: ' + e.message, true); return; }
+    saveSetting('gdrive-on', '1'); gd.lastSync = 0; gdDraw();
+    await gdSync({ interactive: true });
+  });
+  $('gdOff').addEventListener('click', () => {
+    if (!confirm('Desconectar o Google Drive neste aparelho? Seus dados continuam aqui e no Drive.')) return;
+    try { if (gd.token) google.accounts.oauth2.revoke(gd.token, () => {}); } catch (_) {}
+    saveSetting('gdrive-on', ''); saveSetting('gdrive-token', 'null'); gd.token = null; gdDraw(); gdStatus('Google Drive desconectado neste aparelho.');
+  });
+  $('gdClient').value = gd.clientId;
+  document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'hidden' && gd.dirty && gdValid()) gdSync({ quiet: true }); });
+  gdDraw();
+  if (gd.connected && gd.available) setTimeout(() => gdSync({ quiet: true }), 1500);
 
   progress(); controls();
   if (!hasSpeech) status('Este navegador não oferece síntese de voz; tente Chrome ou Edge atualizado.', true);
