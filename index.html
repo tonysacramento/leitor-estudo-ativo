@@ -16,7 +16,7 @@
   <meta name="mobile-web-app-capable" content="yes">
   <meta name="apple-mobile-web-app-title" content="Leitor Ativo">
   <meta name="apple-mobile-web-app-status-bar-style" content="default">
-  <title>Leitor de Estudo Ativo • Versão 5.8</title>
+  <title>Leitor de Estudo Ativo • Versão 5.9</title>
   <!-- PDF.js (módulo moderno) é carregado somente ao abrir PDFs. Biblioteca e worker usam a mesma versão. -->
   <style>
     :root {
@@ -285,6 +285,9 @@
     .lib-gbtn .lib-meta { margin-top: 2px; }
     .lib-gdel { padding: 4px 9px; font-size: .78rem; }
     .lib-gdel.confirm { color: #b42318; border-color: #b42318; }
+    .lib-delall { width: 100%; text-align: left; font-size: .82rem; padding: 7px 10px; color: #b42318; border-color: transparent; background: transparent; }
+    .lib-delall.confirm { border-color: #b42318; font-weight: 800; }
+    :root[data-theme="dark"] .lib-delall { color: #ffaaa1; }
     .lib-item.pending .lib-open { opacity: .7; }
     .lib-back { width: 100%; text-align: left; font-size: .85rem; padding: 7px 10px; }
     .lib-list { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 8px; }
@@ -349,7 +352,7 @@
 <main>
   <header class="header">
     <div>
-      <div class="eyebrow">Estudo com áudio • v5.8</div>
+      <div class="eyebrow">Estudo com áudio • v5.9</div>
       <h1>Leitor de Estudo Ativo</h1>
       <p class="subtitle">Ouça, acompanhe a frase em destaque e retome de onde quiser.</p>
     </div>
@@ -2721,6 +2724,13 @@ ${text}
         const docs = lib.docs.filter(d => colOf(d) === col);
         docs.forEach(d => sub.append(libItem(d, true)));
         if (!docs.length) sub.append(Object.assign(document.createElement('li'), { className: 'hint', textContent: 'Pasta vazia: use ＋ Arquivos ou 📁 Pasta com ela aberta.' }));
+        const delAll = document.createElement('button'); delAll.type = 'button'; delAll.className = 'lib-delall';
+        delAll.textContent = `🗑 Apagar a pasta inteira (${docs.length} ${docs.length === 1 ? 'arquivo' : 'arquivos'})`;
+        delAll.addEventListener('click', () => {
+          if (!delAll.classList.contains('confirm')) { delAll.classList.add('confirm'); delAll.textContent = '⚠ Toque de novo para confirmar: não dá para desfazer'; setTimeout(() => { if (delAll.isConnected) { delAll.classList.remove('confirm'); delAll.textContent = `🗑 Apagar a pasta inteira (${docs.length} ${docs.length === 1 ? 'arquivo' : 'arquivos'})`; } }, 4000); return; }
+          libRemoveCol(col);
+        });
+        sub.append(Object.assign(document.createElement('li'), {}), delAll);
         g.append(sub);
       }
       nodes.push(g);
@@ -3714,16 +3724,36 @@ ${t.text}
     btn.addEventListener('click', () => libToggleCol(col));
     head.append(btn);
     const del = document.createElement('button'); del.type = 'button'; del.className = 'lib-gdel'; del.textContent = '✕';
-    del.title = `Remover a pasta “${col}” e seus arquivos`; del.setAttribute('aria-label', del.title);
+    del.textContent = '🗑'; del.title = `Apagar a pasta “${col}” e todos os arquivos dela`; del.setAttribute('aria-label', del.title);
     del.addEventListener('click', () => {
-      if (!del.classList.contains('confirm')) { del.classList.add('confirm'); del.textContent = 'Remover pasta?'; setTimeout(() => { del.classList.remove('confirm'); del.textContent = '✕'; }, 3000); return; }
-      for (const d of lib.docs.filter(x => colOf(x) === col)) libRemoveDoc(d.id);
-      lib.meta.cols = (lib.meta.cols || []).filter(c => c !== col); delete lib.meta.open[col];
-      if (lib.meta.col === col) lib.meta.col = '';
-      libSaveMeta(true); libRender(true);
+      if (!del.classList.contains('confirm')) { del.classList.add('confirm'); del.textContent = 'Apagar?'; setTimeout(() => { del.classList.remove('confirm'); del.textContent = '🗑'; }, 3000); return; }
+      libRemoveCol(col);
     });
     head.append(del);
     return head;
+  }
+  // Apaga a pasta inteira: arquivos, imagens, originais guardados e posições de leitura.
+  function libRemoveCol(col) {
+    const gone = lib.docs.filter(d => colOf(d) === col);
+    const hadActive = gone.some(d => d.id === lib.activeId);
+    if (hadActive) { stop(); lib.activeId = null; lib.blocksRef = null; }
+    for (const d of gone) {
+      lib.pdf.delete(d.id); delete lib.meta.pos[d.id]; delete lib.meta.done[d.id];
+      libDb.del(d.id); libDb.delImagesOf(d.id); libDb.delFile(d.id);
+      for (const imgId of d.images || []) { const im = images.get(imgId); if (im) { URL.revokeObjectURL(im.url); images.delete(imgId); } }
+    }
+    lib.docs = lib.docs.filter(d => colOf(d) !== col);
+    lib.meta.cols = (lib.meta.cols || []).filter(c => c !== col);
+    if (lib.meta.open) delete lib.meta.open[col];
+    if (lib.meta.col === col) lib.meta.col = '';
+    if (hadActive) {
+      els.textInput.value = ''; state.blocks = []; state.index = 0; state.fileName = '';
+      els.readerView.innerHTML = '<p class="placeholder">O conteúdo processado aparecerá aqui. Clique numa frase para começar por ela.</p>';
+      els.fileHint.textContent = 'PDF com texto selecionável, TXT ou Markdown. Vários arquivos formam uma lista de leitura.';
+      progress(); controls();
+    }
+    libSaveMeta(true); libRender(true);
+    status(`Pasta “${col}” apagada (${gone.length} ${gone.length === 1 ? 'arquivo' : 'arquivos'}).`);
   }
   // Tocar na pasta abre/recolhe; ao abrir, os arquivos dela começam a ser preparados.
   function libToggleCol(col) {
