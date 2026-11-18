@@ -16,7 +16,7 @@
   <meta name="mobile-web-app-capable" content="yes">
   <meta name="apple-mobile-web-app-title" content="Leitor Ativo">
   <meta name="apple-mobile-web-app-status-bar-style" content="default">
-  <title>Leitor de Estudo Ativo • Versão 6.2</title>
+  <title>Leitor de Estudo Ativo • Versão 6.3</title>
   <!-- PDF.js (módulo moderno) é carregado somente ao abrir PDFs. Biblioteca e worker usam a mesma versão. -->
   <style>
     :root {
@@ -315,6 +315,9 @@
     .library.open { transform: none; }
     .lib-backdrop { position: fixed; inset: 0; z-index: 899; background: rgba(0, 0, 0, .35); }
     .lib-backdrop[hidden] { display: none; }
+    .bkp { order: 99; margin-top: 14px; padding-top: 12px; border-top: 1px solid var(--border); display: grid; gap: 6px; }
+    .bkp p { margin: 0; }
+    #bkpStatus.error { color: #b3261e; }
     .lib-head { display: flex; justify-content: space-between; align-items: center; gap: 8px; }
     .lib-head strong { font-size: 1.05rem; }
     .lib-close { padding: 6px 10px; }
@@ -395,13 +398,21 @@
   <button type="button" id="libEdital" class="lib-add">📚 Conteúdo do edital TCE-SP</button>
   <label class="toggle lib-auto"><input type="checkbox" id="libAuto" checked> Ao terminar, seguir para o próximo</label>
   <ol id="libList" class="lib-list"></ol>
+  <div class="bkp" aria-label="Backup">
+    <strong>💾 Levar para outro aparelho</strong>
+    <p class="hint">Salva arquivos, ponto de leitura, cronograma, flashcards e caderno de erros num arquivo. No outro aparelho, toque em Restaurar e escolha esse arquivo.</p>
+    <label class="toggle"><input type="checkbox" id="bkpFull" checked> Incluir os PDFs originais e as imagens (arquivo maior)</label>
+    <div class="lib-row"><button type="button" id="bkpExport" class="lib-add">💾 Salvar backup</button><button type="button" id="bkpImport" class="lib-add">📥 Restaurar backup</button></div>
+    <input type="file" id="bkpFile" class="file-input-hidden" accept=".json,application/json" aria-hidden="true" tabindex="-1">
+    <p class="hint" id="bkpStatus" role="status"></p>
+  </div>
   <p id="libEmpty" class="hint">Nenhum arquivo ainda. Suba uma pasta (cada subpasta vira uma matéria) ou vários PDFs: eles ficam guardados aqui e cada matéria é preparada quando você toca nela.</p>
 </aside>
 <div id="libBackdrop" class="lib-backdrop" hidden></div>
 <main>
   <header class="header">
     <div>
-      <div class="eyebrow">Estudo com áudio • v6.2</div>
+      <div class="eyebrow">Estudo com áudio • v6.3</div>
       <h1>Leitor de Estudo Ativo</h1>
       <p class="subtitle">Ouça, acompanhe a frase em destaque e retome de onde quiser.</p>
     </div>
@@ -5009,6 +5020,80 @@ ${t.text}
       el('div', { class: 'q-actions' }, el('button', { type: 'button', text: '🔔 Testar aviso', onclick: () => { unlockAudio(); askNotify().then(() => notify('⏰ Hora de estudar!', 'Este é um teste do lembrete.', 'alarm')); } }))));
     box.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
   }
+
+  // ===================== 💾 Backup: levar tudo de um aparelho para outro =====================
+  const blobToData = b => new Promise(r => { const fr = new FileReader(); fr.onload = () => r(fr.result); fr.onerror = () => r(null); fr.readAsDataURL(b); });
+  async function packVal(v) {
+    if (v instanceof Blob) return { __blob: await blobToData(v), type: v.type, name: v.name || '' };
+    if (Array.isArray(v)) return Promise.all(v.map(packVal));
+    if (v && typeof v === 'object' && !(v instanceof Date)) { const o = {}; for (const [k, x] of Object.entries(v)) o[k] = await packVal(x); return o; }
+    return v;
+  }
+  async function unpackVal(v) {
+    if (v && typeof v === 'object' && typeof v.__blob === 'string') {
+      const blob = await (await fetch(v.__blob)).blob();
+      return v.name ? new File([blob], v.name, { type: v.type || blob.type }) : new Blob([blob], { type: v.type || blob.type });
+    }
+    if (Array.isArray(v)) return Promise.all(v.map(unpackVal));
+    if (v && typeof v === 'object') { const o = {}; for (const [k, x] of Object.entries(v)) o[k] = await unpackVal(x); return o; }
+    return v;
+  }
+  const idbAll = store => new Promise(resolve => {
+    const req = indexedDB.open('leitor-ativo', 3);
+    req.onsuccess = () => { try { const g = req.result.transaction(store, 'readonly').objectStore(store).getAll(); g.onsuccess = () => resolve(g.result || []); g.onerror = () => resolve([]); } catch (_) { resolve([]); } };
+    req.onerror = () => resolve([]);
+  });
+  const bkpStatus = (msg, err) => { const s = $('bkpStatus'); s.textContent = msg; s.classList.toggle('error', !!err); };
+  async function backupExport() {
+    const full = $('bkpFull').checked;
+    bkpStatus('Montando o backup…');
+    libSaveMeta(true);
+    const settings = {};
+    for (let i = 0; i < localStorage.length; i++) {
+      const k = localStorage.key(i);
+      if (k?.startsWith('leitor-ativo-') && k !== 'leitor-ativo-gemini-key') settings[k] = localStorage.getItem(k);
+    }
+    const parts = [`{"app":"leitor-estudo-ativo","v":1,"at":${Date.now()},"full":${full},"settings":${JSON.stringify(settings)},"docs":[`];
+    const docs = await idbAll('docs');
+    for (let i = 0; i < docs.length; i++) parts.push((i ? ',' : '') + JSON.stringify(await packVal(docs[i])));
+    parts.push('],"files":[');
+    if (full) { const fs = await idbAll('files'); for (let i = 0; i < fs.length; i++) parts.push((i ? ',' : '') + JSON.stringify(await packVal(fs[i]))); }
+    parts.push('],"images":[');
+    if (full) { const im = await idbAll('images'); for (let i = 0; i < im.length; i++) parts.push((i ? ',' : '') + JSON.stringify(await packVal(im[i]))); }
+    parts.push(']}');
+    const blob = new Blob(parts, { type: 'application/json' });
+    const d = new Date(), name = `leitor-backup-${d.getFullYear()}-${pad2(d.getMonth() + 1)}-${pad2(d.getDate())}.json`;
+    const mb = (blob.size / 1048576).toFixed(1);
+    const dl = window.claude?.use ? await window.claude.use('downloads').catch(() => null) : null;
+    if (dl) {
+      try { await dl.save({ filename: name, data: blob }); bkpStatus(`Backup salvo (${mb} MB, ${docs.length} arquivos). No outro aparelho: 📥 Restaurar backup.`); }
+      catch (e) { bkpStatus(e?.code === 'declined' ? 'Backup cancelado.' : 'Não foi possível salvar aqui. Use o app do GitHub para o backup.', e?.code !== 'declined'); }
+      return;
+    }
+    if (window.claude?.use && !dl) { /* página do Claude sem download: segue pelo link */ }
+    const a = document.createElement('a'); a.href = URL.createObjectURL(blob); a.download = name;
+    document.body.append(a); a.click(); a.remove(); setTimeout(() => URL.revokeObjectURL(a.href), 60000);
+    bkpStatus(`Backup baixado: “${name}” (${mb} MB, ${docs.length} arquivos). Envie para o outro aparelho (Drive, WhatsApp, e-mail) e use 📥 Restaurar backup lá.`);
+  }
+  async function backupImport(file) {
+    if (!file) return;
+    bkpStatus('Lendo o backup…');
+    let data; try { data = JSON.parse(await file.text()); } catch (_) { bkpStatus('Este arquivo não é um backup válido do Leitor.', true); return; }
+    if (data?.app !== 'leitor-estudo-ativo') { bkpStatus('Este arquivo não é um backup do Leitor de Estudo Ativo.', true); return; }
+    const when = new Date(data.at).toLocaleString('pt-BR', { dateStyle: 'short', timeStyle: 'short' });
+    if (!confirm(`Restaurar o backup de ${when} com ${data.docs.length} arquivos?\n\nArquivos com o mesmo nome serão substituídos pela versão do backup; o cronograma, os flashcards, o caderno de erros e o progresso passam a ser os do backup. O que só existe neste aparelho continua aqui.`)) { bkpStatus(''); return; }
+    bkpStatus('Restaurando…');
+    for (const [k, v] of Object.entries(data.settings || {})) try { localStorage.setItem(k, v); } catch (_) {}
+    for (const d of data.docs || []) await libDb.put(await unpackVal(d));
+    for (const f of data.files || []) await libDb.putFile(await unpackVal(f));
+    for (const im of data.images || []) await libDb.putImage(await unpackVal(im));
+    // junta a ordem da biblioteca deste aparelho com a do backup
+    bkpStatus(`✓ Backup restaurado (${data.docs.length} arquivos${data.full ? '' : ', sem os PDFs originais'}). Recarregando…`);
+    setTimeout(() => location.reload(), 1200);
+  }
+  $('bkpExport').addEventListener('click', () => backupExport().catch(e => bkpStatus('Erro ao montar o backup: ' + (e?.message || e), true)));
+  $('bkpImport').addEventListener('click', () => $('bkpFile').click());
+  $('bkpFile').addEventListener('change', e => { backupImport(e.target.files[0]).catch(err => bkpStatus('Erro ao restaurar: ' + (err?.message || err), true)); e.target.value = ''; });
 
   progress(); controls();
   if (!hasSpeech) status('Este navegador não oferece síntese de voz; tente Chrome ou Edge atualizado.', true);
