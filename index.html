@@ -16,7 +16,7 @@
   <meta name="mobile-web-app-capable" content="yes">
   <meta name="apple-mobile-web-app-title" content="Leitor Ativo">
   <meta name="apple-mobile-web-app-status-bar-style" content="default">
-  <title>Leitor de Estudo Ativo • Versão 5.3</title>
+  <title>Leitor de Estudo Ativo • Versão 5.4</title>
   <!-- PDF.js (módulo moderno) é carregado somente ao abrir PDFs. Biblioteca e worker usam a mesma versão. -->
   <style>
     :root {
@@ -349,7 +349,7 @@
 <main>
   <header class="header">
     <div>
-      <div class="eyebrow">Estudo com áudio • v5.3</div>
+      <div class="eyebrow">Estudo com áudio • v5.4</div>
       <h1>Leitor de Estudo Ativo</h1>
       <p class="subtitle">Ouça, acompanhe a frase em destaque e retome de onde quiser.</p>
     </div>
@@ -372,6 +372,7 @@
           <button type="button" class="primary" id="edUpload">📄 Anexar edital (PDF)</button>
           <select id="edFromLib" aria-label="Usar um edital da biblioteca"><option value="">…ou escolha um arquivo da biblioteca</option></select>
         </div>
+        <input type="file" id="edProgFile" class="file-input-hidden" accept=".pdf,.txt,.md,application/pdf,text/plain" aria-hidden="true" tabindex="-1">
         <input type="file" id="edFile" class="file-input-hidden" accept=".pdf,.txt,.md,application/pdf,text/plain" aria-hidden="true" tabindex="-1">
       </div>
       <div id="edVagas"></div>
@@ -3898,8 +3899,9 @@ ${t.text}
   const wide = s => Object.assign(new String(s), { wide: true });
   const EDITAL_RULES = `Você analisa EDITAIS de concursos públicos brasileiros. Use SOMENTE o texto do EDITAL fornecido, sem inventar dados; quando algo não constar, use null ou "". Escreva em português do Brasil.`;
 
-  async function edLoadText(text, name) {
-    ed.data = { source: name, text: text.slice(0, 600000), vagas: [], concurso: null, sel: null, detail: null, plan: ed.data.plan || null };
+  const edText = () => (libDoc(ed.data.docId) || lib.docs.find(d => d.name === ed.data.source && d.text))?.text || ed.data.text || '';
+  async function edLoadText(text, name, docId) {
+    ed.data = { source: name, docId: docId || null, text: docId ? '' : text.slice(0, 600000), vagas: [], concurso: null, sel: null, detail: null, plan: ed.data.plan || null };
     edSave();
     const slice = edSlice(text, ['cargo', 'vaga', 'especialidade', 'código', 'remuneração', 'vencimento', 'escolaridade', 'quadro de vagas', 'cadastro reserva', 'data da prova', 'aplicação das provas'], 110000, 20000);
     const data = await edAsk(`${EDITAL_RULES}
@@ -3942,10 +3944,10 @@ ${slice}
   }
   async function edSelect(id) {
     const v = (ed.data.vagas || []).find(x => x.id === id); if (!v) return;
-    if (!ed.data.text) { edStatus('O texto do edital não está mais salvo. Anexe o edital de novo.', true); return; }
+    if (!edText()) { edStatus('O texto do edital não está mais salvo. Anexe o edital de novo.', true); return; }
     ed.data.sel = id; edSave(); edRenderVagas();
     const keys = [v.cargo, v.especialidade, v.codigo].filter(Boolean).flatMap(s => [wide(s)]);
-    const slice = edSlice(ed.data.text, [...keys, 'conteúdo programático', wide('conhecimentos gerais'), wide('conhecimentos básicos'), wide('conhecimentos específicos'), 'atribuições', 'requisitos', 'prova objetiva', 'prova discursiva', 'peso', 'número de questões', 'etapa'], 140000, 8000);
+    const slice = edSlice(edText(), [...keys, 'conteúdo programático', wide('conhecimentos gerais'), wide('conhecimentos básicos'), wide('conhecimentos específicos'), 'atribuições', 'requisitos', 'prova objetiva', 'prova discursiva', 'peso', 'número de questões', 'etapa'], 140000, 8000);
     const data = await edAsk(`${EDITAL_RULES}
 Extraia do EDITAL todas as informações da vaga: CARGO "${v.cargo || ''}"${v.especialidade ? `, ESPECIALIDADE/ÁREA "${v.especialidade}"` : ''}${v.codigo ? `, CÓDIGO "${v.codigo}"` : ''}.
 - "materias": TODAS as disciplinas cobradas para ESTA vaga, separadas em "gerais" (conhecimentos gerais/básicos, comuns a vários cargos) e "especificos". Para cada uma, liste os TÓPICOS exatamente como no conteúdo programático, um item por tópico (divida itens numerados como 1., 1.1, 2…).
@@ -3963,6 +3965,7 @@ ${slice}
     ed.data.detail = { ...data, vagaId: id };
     edSave(); edRenderDetail();
     const n = data.materias.reduce((a, m) => a + m.topicos.length, 0);
+    if (n < 5) { await edTopics(); return; }
     edStatus(`${data.materias.length} matérias e ${n} tópicos. Confira e gere o cronograma.`);
   }
   function edRenderDetail() {
@@ -3988,6 +3991,13 @@ ${slice}
         card.append(det);
       }
     }
+    const nTop = (d.materias || []).reduce((a, m) => a + (m.topicos || []).length, 0);
+    if (nTop < 5) card.append(el('div', { class: 'block' },
+      el('strong', { text: '⚠ Faltam os tópicos do conteúdo programático' }),
+      el('p', { class: 'hint', text: 'Sem eles não dá para montar o cronograma. Busque de novo no edital ou anexe o PDF do conteúdo programático, se ele foi publicado separado.' }),
+      el('div', { class: 'q-actions' },
+        el('button', { type: 'button', class: 'primary', text: '🔄 Buscar conteúdo programático no edital', onclick: () => edTopics() }),
+        el('button', { type: 'button', text: '📎 Anexar conteúdo programático (PDF)', onclick: () => $('edProgFile').click() }))));
     if (d.observacoes) card.append(el('p', { class: 'hint', text: d.observacoes }));
     card.append(el('p', { class: 'hint', text: '⚠ Extraído por IA: confira os dados no edital oficial antes de se inscrever.' }));
     box.replaceChildren(card);
@@ -4003,8 +4013,8 @@ ${slice}
     try {
       const result = await readFile(f, state.importJob);
       if (!result?.text?.trim()) throw new Error('o arquivo não tem texto legível');
-      libAdd(f.name, result, 'Editais');
-      await edLoadText(result.text, f.name);
+      const doc = libAdd(f.name, result, 'Editais');
+      await edLoadText(result.text, f.name, doc.id);
     } catch (error) { edStatus('Erro ao ler o edital: ' + error.message, true); }
   });
   function edFillLib() {
@@ -4013,7 +4023,77 @@ ${slice}
     sel.value = cur;
   }
   $('edFromLib').addEventListener('focus', edFillLib);
-  $('edFromLib').addEventListener('change', () => { const d = libDoc($('edFromLib').value); if (d) edLoadText(d.text, d.name); });
+  $('edFromLib').addEventListener('change', () => { const d = libDoc($('edFromLib').value); if (d) edLoadText(d.text, d.name, d.id); });
+
+  // ---------- Conteúdo programático (anexo do edital ou PDF separado) ----------
+  // Localiza a seção do conteúdo programático: a ocorrência com o maior trecho até o próximo "ANEXO".
+  function edProgSection(text) {
+    const norm = text.normalize('NFD').replace(/[̀-ͯ]/g, '').toLowerCase();
+    const anexos = [...norm.matchAll(/(?:^|\n)\s*anexo\s+(?:[ivxl]+|\d+|unico)\b/g)].map(m => m.index);
+    const starts = [...norm.matchAll(/conteudos?\s+programaticos?|programa\s+das\s+provas|conteudo\s+das\s+provas/g)].map(m => m.index);
+    // Prefere o título de anexo ("ANEXO VI – CONTEÚDO PROGRAMÁTICO") a menções no meio do texto.
+    let best = null;
+    for (const i of starts) {
+      const heading = anexos.some(a => i >= a && i - a < 300);
+      const end = anexos.find(a => a > i + 1500) ?? text.length;
+      const cand = { s: Math.max(0, i - 300), e: end, heading };
+      if (!best || (cand.heading && !best.heading) || (cand.heading === best.heading && cand.e - cand.s > best.e - best.s)) best = cand;
+    }
+    return best ? text.slice(best.s, best.e) : '';
+  }
+  async function edTopics(sourceText) {
+    const d = ed.data.detail; if (!d) return;
+    const v = (ed.data.vagas || []).find(x => x.id === d.vagaId) || d;
+    let section = sourceText || edProgSection(edText());
+    if (!section || section.length < 500) {
+      edRenderDetail();
+      edStatus('Não encontrei o conteúdo programático no texto do edital. Se ele está em outro PDF, use “📎 Anexar conteúdo programático”.', true);
+      return;
+    }
+    if (section.length > 130000) {
+      const names = [d.cargo, d.especialidade, v.codigo].filter(Boolean).map(wide);
+      section = edSlice(section, [...names, wide('comuns a todos'), wide('conhecimentos gerais'), wide('conhecimentos básicos')], 130000, 25000);
+    }
+    const data = await edAsk(`${EDITAL_RULES}
+Abaixo está o CONTEÚDO PROGRAMÁTICO de um edital. Extraia SOMENTE as disciplinas cobradas para a vaga: CARGO "${d.cargo || v.cargo || ''}"${(d.especialidade || v.especialidade) ? `, ESPECIALIDADE/ÁREA "${d.especialidade || v.especialidade}"` : ''}.
+- Inclua os conhecimentos comuns/gerais/básicos que valem para esta vaga (grupo "gerais") e os específicos dela (grupo "especificos"). Ignore conteúdos de outros cargos.
+- Use o nome real de cada disciplina (ex.: "Língua Portuguesa", "Direito Constitucional"), não apenas "Conhecimentos Gerais".
+- Liste os TÓPICOS como no edital, um item por tópico (divida itens numerados 1., 1.1, 2…; mantenha o texto do item, resumindo só se passar de 200 caracteres).
+Responda APENAS com JSON válido: {"materias":[{"nome":"string","grupo":"gerais","topicos":["string"]}]}
+
+CONTEÚDO PROGRAMÁTICO:
+"""
+${section}
+"""`, 'Lendo o conteúdo programático');
+    if (!data) return;
+    const mats = (data.materias || []).filter(m => m?.nome && (m.topicos || []).length)
+      .map(m => ({ nome: m.nome, grupo: /espec/i.test(m.grupo || '') ? 'especificos' : 'gerais', topicos: m.topicos.filter(Boolean), questoes: null, peso: null }));
+    if (!mats.length) { edRenderDetail(); edStatus('A leitura não encontrou tópicos para esta vaga. Confira se o anexo é o desta vaga ou anexe o PDF do conteúdo programático.', true); return; }
+    // Distribui as questões/peso do grupo (quando o edital só informa o total por grupo) entre as disciplinas.
+    for (const g of ['gerais', 'especificos']) {
+      const old = (d.materias || []).filter(m => m.grupo === g);
+      const q = old.reduce((a, m) => a + (Number(m.questoes) || 0), 0), peso = Number(old[0]?.peso) || null;
+      const now = mats.filter(m => m.grupo === g);
+      for (const m of now) {
+        const same = old.find(o => plain(o.nome) === plain(m.nome));
+        m.questoes = same?.questoes ?? (q ? Math.round(q / now.length) : null);
+        m.peso = same?.peso ?? peso;
+      }
+    }
+    d.materias = mats; edSave(); edRenderDetail();
+    const n = mats.reduce((a, m) => a + m.topicos.length, 0);
+    edStatus(`Conteúdo programático lido: ${mats.length} matérias e ${n} tópicos. Confira e gere o cronograma.`);
+  }
+  $('edProgFile').addEventListener('change', async e => {
+    const f = e.target.files?.[0]; e.target.value = ''; if (!f) return;
+    edStatus(`Lendo ${f.name}…`);
+    try {
+      const result = await readFile(f, state.importJob);
+      if (!result?.text?.trim()) throw new Error('o arquivo não tem texto legível');
+      libAdd(f.name, result, 'Editais');
+      await edTopics(edProgSection(result.text) || result.text);
+    } catch (error) { edStatus('Erro ao ler o arquivo: ' + error.message, true); }
+  });
 
   // ---------- Cronograma (gerado no aparelho, sem IA) ----------
   const isoDay = dt => new Date(dt.getTime() - dt.getTimezoneOffset() * 60000).toISOString().slice(0, 10);
@@ -4036,7 +4116,7 @@ ${slice}
     const blockDays = studyDates.filter((_, i) => !isReview(i)).length;
     const totalSlots = blockDays * slots;
     const mats = d.materias.filter(m => m.topicos.length).map(m => ({ nome: m.nome, grupo: m.grupo, w: (Number(m.questoes) || 5) * (Number(m.peso) || 1) * (m.grupo === 'especificos' ? 1.2 : 1), topics: m.topicos }));
-    if (!mats.length) { edStatus('A vaga não tem tópicos para montar o cronograma.', true); return; }
+    if (!mats.length) { edStatus('A vaga ainda não tem tópicos: use “🔄 Buscar conteúdo programático no edital” no cartão da vaga.', true); return; }
     const T = mats.reduce((a, m) => a + m.topics.length, 0);
     // Muitos tópicos: agrupa vários por bloco. Poucos: ganha segunda passada (questões) e revisão.
     const per = Math.max(1, Math.ceil(T / totalSlots));
