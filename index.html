@@ -16,7 +16,7 @@
   <meta name="mobile-web-app-capable" content="yes">
   <meta name="apple-mobile-web-app-title" content="Leitor Ativo">
   <meta name="apple-mobile-web-app-status-bar-style" content="default">
-  <title>Leitor de Estudo Ativo • Versão 5.11</title>
+  <title>Leitor de Estudo Ativo • Versão 6.0</title>
   <!-- PDF.js (módulo moderno) é carregado somente ao abrir PDFs. Biblioteca e worker usam a mesma versão. -->
   <style>
     :root {
@@ -97,6 +97,38 @@
     .img-viewer.zoom img { max-width: none; max-height: none; width: 200%; cursor: zoom-out; }
     .img-viewer-close { position: fixed; top: calc(env(safe-area-inset-top, 0px) + 10px); right: 12px; z-index: 1; background: rgba(255, 255, 255, .15) !important; color: #fff !important; border-color: transparent !important; }
     #btnFromFile.suggest { border-color: var(--primary); box-shadow: inset 0 0 0 1px var(--primary); }
+    .perfil-opts { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 10px; }
+    .perfil-opt { display: flex; flex-direction: column; align-items: flex-start; gap: 3px; text-align: left; padding: 14px; }
+    .perfil-opt span { font-size: 1.6rem; }
+    .perfil-opt small { color: var(--muted); font-weight: 500; }
+    .perfil-opt[aria-pressed="true"] { border-color: var(--primary); box-shadow: inset 0 0 0 2px var(--primary); background: color-mix(in srgb, var(--primary) 8%, var(--surface)); }
+    .pr-tabs button[hidden] { display: none; }
+    .pr-more { border-style: dashed; }
+    .mm { display: grid; gap: 12px; }
+    .mm-center { justify-self: center; text-align: center; padding: 12px 18px; border-radius: 14px; background: var(--primary); color: var(--on-primary); font-weight: 800; font-size: 1.05rem; max-width: 100%; }
+    .mm-branches { display: grid; grid-template-columns: repeat(auto-fill, minmax(230px, 1fr)); gap: 10px; }
+    .mm-branch { border: 2px solid var(--bc); border-radius: 12px; padding: 10px 12px; background: color-mix(in srgb, var(--bc) 7%, var(--surface)); }
+    .mm-branch h4 { margin: 0 0 6px; color: var(--bc); font-size: .98rem; }
+    .mm-item { display: flex; gap: 6px; font-size: .88rem; margin: 4px 0; line-height: 1.4; }
+    .mm-item b { flex: none; }
+    .flow { display: flex; flex-wrap: wrap; align-items: stretch; gap: 6px; }
+    .flow-step { flex: 1 1 150px; border: 1px solid var(--border); border-radius: 10px; padding: 8px 10px; background: var(--surface); font-size: .86rem; }
+    .flow-step strong { display: block; color: var(--primary); }
+    .flow-arrow { align-self: center; color: var(--muted); font-weight: 800; }
+    .ex-card .ex-row { display: flex; gap: 8px; align-items: center; margin: 6px 0; flex-wrap: wrap; }
+    .ex-card .ex-row > span { flex: 1 1 200px; font-size: .92rem; }
+    .ex-card select { padding: 7px 9px; border-radius: 8px; border: 1px solid var(--border); background: var(--surface); color: var(--text); font: inherit; max-width: 100%; }
+    .ex-ok { border-color: #1f8a4c !important; background: color-mix(in srgb, #1f8a4c 12%, var(--surface)) !important; }
+    .ex-bad { border-color: #b42318 !important; background: color-mix(in srgb, #b42318 10%, var(--surface)) !important; }
+    .ex-order li { display: flex; gap: 6px; align-items: center; border: 1px solid var(--border); border-radius: 9px; padding: 6px 8px; margin: 5px 0; background: var(--surface); list-style: none; }
+    .ex-order li span { flex: 1; font-size: .92rem; }
+    .ex-order { padding: 0; margin: 6px 0; }
+    .ex-order button, .ex-cats button { padding: 4px 10px; font-size: .82rem; }
+    .ex-cats { display: flex; gap: 4px; flex-wrap: wrap; }
+    .ex-cats button[aria-pressed="true"] { background: var(--primary); color: var(--on-primary); border-color: var(--primary); }
+    .ex-gap { display: inline-block; margin: 0 2px; }
+    .ex-text { line-height: 2.1; }
+    @media (max-width: 740px) { .perfil-opts { grid-template-columns: 1fr; } .flow { flex-direction: column; } .flow-step { flex: 0 0 auto; } .flow-arrow { transform: rotate(90deg); } }
     .pr-tabs { display: flex; gap: 6px; flex-wrap: wrap; margin-bottom: 12px; }
     .pr-tabs button[aria-selected="true"] { background: var(--primary); color: var(--on-primary); border-color: var(--primary); }
     .disc-case { min-height: 120px; }
@@ -352,17 +384,28 @@
 <main>
   <header class="header">
     <div>
-      <div class="eyebrow">Estudo com áudio • v5.11</div>
+      <div class="eyebrow">Estudo com áudio • v6.0</div>
       <h1>Leitor de Estudo Ativo</h1>
       <p class="subtitle">Ouça, acompanhe a frase em destaque e retome de onde quiser.</p>
     </div>
     <div class="button-group">
       <button id="btnInstall" type="button" hidden>⬇ Instalar app</button>
       <button id="btnLib" type="button" aria-label="Abrir a lista de arquivos">📚 Arquivos<span class="lib-badge" id="libCount"></span></button>
-    <button id="btnTheme" type="button" aria-label="Alternar modo claro e escuro" title="Alternar tema">◐ Tema</button>
+    <button id="btnPerfil" type="button" title="Seu perfil de estudo">👤 Perfil</button>
+      <button id="btnTheme" type="button" aria-label="Alternar modo claro e escuro" title="Alternar tema">◐ Tema</button>
     </div>
   </header>
 
+  <section class="panel perfil" id="perfilCard" hidden aria-label="Seu perfil de estudo">
+  <h2 class="panel-title">👤 Como você prefere estudar?</h2>
+  <p class="hint" style="margin-top:-8px">Marque um ou mais. Mostramos primeiro as opções que combinam com você; as outras ficam em “＋ Mais formatos”. Dá para mudar quando quiser no botão 👤 Perfil.</p>
+  <div class="perfil-opts">
+    <button type="button" class="perfil-opt" data-perfil="ouvir"><span>🎧</span><strong>Ouvindo</strong><small>Podcast, histórias e revisão em áudio</small></button>
+    <button type="button" class="perfil-opt" data-perfil="ver"><span>👁</span><strong>Vendo</strong><small>Mapas mentais, esquemas e leitura</small></button>
+    <button type="button" class="perfil-opt" data-perfil="praticar"><span>✋</span><strong>Praticando</strong><small>Exercícios, questões, flashcards e discursiva</small></button>
+  </div>
+  <div class="toolbar"><button type="button" class="primary" id="perfilSave">Salvar perfil</button><button type="button" id="perfilSkip">Mostrar tudo</button></div>
+</section>
   <section class="panel" id="concurso" aria-label="Meu concurso: edital, vagas e cronograma">
     <h2 class="panel-title">🎯 Meu concurso</h2>
     <div id="edToday"></div>
@@ -546,9 +589,12 @@
     <h2 class="panel-title">4. Pratique</h2>
     <p class="hint" style="margin-top:-8px;">Tudo gerado a partir do arquivo aberto na etapa 1.</p>
     <div class="pr-tabs" role="tablist">
-      <button type="button" role="tab" data-tab="cards" aria-selected="true">🃏 Flashcards</button>
-      <button type="button" role="tab" data-tab="disc" aria-selected="false">✍️ Discursiva</button>
-      <button type="button" role="tab" data-tab="pod" aria-selected="false">🎧 Podcast</button>
+      <button type="button" role="tab" data-tab="pod" data-perfis="ouvir" aria-selected="false">🎧 Podcast / História</button>
+      <button type="button" role="tab" data-tab="map" data-perfis="ver" aria-selected="false">🗺 Mapa mental</button>
+      <button type="button" role="tab" data-tab="ex" data-perfis="praticar" aria-selected="false">✋ Exercícios</button>
+      <button type="button" role="tab" data-tab="cards" data-perfis="praticar ver" aria-selected="true">🃏 Flashcards</button>
+      <button type="button" role="tab" data-tab="disc" data-perfis="praticar" aria-selected="false">✍️ Discursiva</button>
+      <button type="button" class="pr-more" id="prMore" hidden>＋ Mais formatos</button>
     </div>
     <div class="pr-pane" data-pane="cards">
       <p class="hint">Cartões de pergunta e resposta com <strong>revisão espaçada</strong>: o que você erra volta logo; o que acerta volta em 1, 3, 7, 15 e 30 dias. Ficam salvos por arquivo.</p>
@@ -582,6 +628,16 @@
       <div class="toolbar"><button type="button" class="primary" id="discGrade">✓ Corrigir no Padrão Ouro</button></div>
       <p class="hint" id="discHist"></p>
       <div id="discOut" class="ile-out"></div>
+    </div>
+    <div class="pr-pane" data-pane="map" hidden>
+      <p class="hint">Organiza o material num <strong>mapa mental</strong> (ramos com conceitos, normas, exemplos e pegadinhas) e num <strong>esquema em etapas</strong>, para ver o assunto inteiro de uma vez.</p>
+      <div class="toolbar" style="margin-top:6px"><button type="button" class="primary" id="mapGen">🗺 Criar mapa deste arquivo</button></div>
+      <div id="mapOut" class="ile-out"></div>
+    </div>
+    <div class="pr-pane" data-pane="ex" hidden>
+      <p class="hint">Exercícios para <strong>fazer com as mãos</strong>: ordenar etapas, ligar conceito e definição, classificar exemplos e completar a lei. Correção na hora.</p>
+      <div class="toolbar" style="margin-top:6px"><button type="button" class="primary" id="exGen">✋ Criar exercícios deste arquivo</button></div>
+      <div id="exOut" class="ile-out"></div>
     </div>
     <div class="pr-pane" data-pane="pod" hidden>
       <p class="hint">Transforma o material em áudio de 5 a 9 minutos, que entra na sua biblioteca para ouvir com o player (inclusive no modo livro).</p>
@@ -4331,7 +4387,9 @@ ${refText ? `\nMATERIAL DE REFERÊNCIA:\n"""\n${refText}\n"""` : ''}`, `Preparan
       const go = el('button', { type: 'button', class: 'primary', text: '🔁 Começar revisão' });
       go.addEventListener('click', () => {
         p.formato = box.querySelector('input[name=rvFmt]:checked')?.value || 'resumo';
-        p.modo = box.querySelector('input[name=rvModo]:checked')?.value || 'ouvir';
+        const m = box.querySelector('input[name=rvModo]:checked')?.value || 'ouvir';
+        if (m !== p.modo) p.modoManual = true;
+        p.modo = m;
         p.sel = [...sel]; edSave();
         edMakeReview([...sel].map(m => ({ materia: m, topicos: [...byMat.get(m).topicos], docs: [...byMat.get(m).docs] })), p);
       });
@@ -4494,6 +4552,201 @@ ${material}
   }
   edRenderVagas(); edRenderDetail(); edRenderToday();
   if (ed.data.plan) $('edSetupSum').textContent = 'Edital, vaga e cronograma (refazer ou ajustar)';
+
+  // ===================== Perfil de estudo (ouvir / ver / praticar) =====================
+  const perfil = { set: new Set((loadSetting('perfil', '') || '').split(',').filter(Boolean)), showAll: false, decided: loadSetting('perfil', null) !== null };
+  function perfilSync() {
+    document.querySelectorAll('.perfil-opt').forEach(b => b.setAttribute('aria-pressed', String(perfil.set.has(b.dataset.perfil))));
+  }
+  document.querySelectorAll('.perfil-opt').forEach(b => b.addEventListener('click', () => {
+    if (perfil.set.has(b.dataset.perfil)) perfil.set.delete(b.dataset.perfil); else perfil.set.add(b.dataset.perfil);
+    perfilSync();
+  }));
+  function perfilApply() {
+    const tabs = [...document.querySelectorAll('#practice [data-tab]')];
+    const fits = t => !perfil.set.size || t.dataset.perfis.split(' ').some(x => perfil.set.has(x));
+    let hidden = 0;
+    tabs.forEach(t => { const show = perfil.showAll || fits(t); t.hidden = !show; if (!show) hidden++; });
+    $('prMore').hidden = !hidden;
+    $('prMore').textContent = `＋ Mais formatos (${hidden})`;
+    // Se a aba aberta ficou escondida, abre a primeira visível.
+    const cur = tabs.find(t => t.getAttribute('aria-selected') === 'true');
+    if (!cur || cur.hidden) tabs.find(t => !t.hidden)?.click();
+    // Revisão: modo padrão segue o perfil.
+    const rp = ed.data.reviewPrefs ||= { days: 7, formato: 'resumo', modo: 'ouvir', sel: null };
+    if (!rp.modoManual && perfil.set.size) rp.modo = perfil.set.has('ouvir') ? 'ouvir' : 'ler';
+    $('btnPerfil').textContent = '👤 ' + (perfil.set.size ? [...perfil.set].map(x => ({ ouvir: '🎧', ver: '👁', praticar: '✋' })[x]).join('') : 'Perfil');
+  }
+  $('prMore').addEventListener('click', () => { perfil.showAll = true; perfilApply(); });
+  $('perfilSave').addEventListener('click', () => {
+    saveSetting('perfil', [...perfil.set].join(',')); perfil.decided = true; perfil.showAll = false;
+    $('perfilCard').hidden = true; perfilApply();
+    status(perfil.set.size ? 'Perfil salvo: as opções de estudo foram organizadas para você.' : 'Perfil salvo: mostrando todas as opções.');
+  });
+  $('perfilSkip').addEventListener('click', () => { perfil.set.clear(); saveSetting('perfil', ''); perfil.decided = true; $('perfilCard').hidden = true; perfilSync(); perfilApply(); });
+  $('btnPerfil').addEventListener('click', () => { const c = $('perfilCard'); c.hidden = !c.hidden; perfilSync(); if (!c.hidden) c.scrollIntoView({ behavior: 'smooth', block: 'start' }); });
+  $('perfilCard').hidden = perfil.decided;
+  perfilSync(); perfilApply();
+
+  // ===================== 👁 Mapa mental e esquema =====================
+  const MM_COLORS = ['#2563eb', '#16a34a', '#d97706', '#9333ea', '#dc2626', '#0891b2', '#db2777', '#65a30d'];
+  const MM_ICON = { conceito: '💡', norma: '📜', exemplo: '🧩', pegadinha: '⚠️', dica: '🎯' };
+  const mapKey = () => 'map-' + docKey();
+  function renderMap(d) {
+    const box = el('div', { class: 'card' }, el('span', { class: 'tag', text: 'Mapa mental' }));
+    const mm = el('div', { class: 'mm' }, el('div', { class: 'mm-center', text: d.titulo || docName() }));
+    const branches = el('div', { class: 'mm-branches' });
+    (d.ramos || []).forEach((r, i) => {
+      const b = el('div', { class: 'mm-branch', style: `--bc:${MM_COLORS[i % MM_COLORS.length]}` }, el('h4', { text: r.titulo || '' }));
+      for (const it of r.itens || []) b.append(el('div', { class: 'mm-item' }, el('b', { text: MM_ICON[it.tipo] || '•' }), el('span', { text: it.texto || '' })));
+      branches.append(b);
+    });
+    mm.append(branches); box.append(mm);
+    if ((d.esquema?.passos || []).length) {
+      box.append(el('h4', { text: '🔀 ' + (d.esquema.titulo || 'Esquema') }));
+      const flow = el('div', { class: 'flow' });
+      d.esquema.passos.forEach((p, i) => {
+        if (i) flow.append(el('span', { class: 'flow-arrow', text: '→' }));
+        flow.append(el('div', { class: 'flow-step' }, el('strong', { text: `${i + 1}. ${p.titulo || ''}` }), p.detalhe || ''));
+      });
+      box.append(flow);
+    }
+    box.append(el('p', { class: 'hint', text: '💡 conceito • 📜 norma • 🧩 exemplo • ⚠️ pegadinha • 🎯 dica de prova' }));
+    box.append(el('div', { class: 'q-actions' }, el('button', { type: 'button', text: '↻ Refazer o mapa', onclick: mapGenerate })));
+    $('mapOut').replaceChildren(box);
+  }
+  async function mapGenerate() {
+    const t = prText(); if (!t) return;
+    const data = await prAsk(`${ILE_RULES}
+Organize o MATERIAL num MAPA MENTAL para estudo visual de concurso.
+- "ramos": 4 a 7 ramos principais (os grandes temas). Cada ramo com 3 a 7 itens curtos (até 15 palavras), cada item com um "tipo": "conceito", "norma" (dispositivo legal/normativo real do material), "exemplo", "pegadinha" (erro que a banca cobra) ou "dica".
+- "esquema": o principal processo, ciclo ou sequência do assunto em 3 a 7 etapas (se não houver sequência natural, use a lógica "conceito → regra → exceção → consequência").
+Responda APENAS com JSON válido: {"titulo":"tema central curto","ramos":[{"titulo":"string","itens":[{"texto":"string","tipo":"conceito"}]}],"esquema":{"titulo":"string","passos":[{"titulo":"string","detalhe":"string"}]}}
+
+MATERIAL:
+"""
+${t.text}
+"""`, 'Desenhando o mapa mental', $('mapOut'));
+    if (!data) return;
+    if (!(data.ramos || []).length) { prStatus('O mapa veio vazio. Tente de novo.', true); return; }
+    saveSetting(mapKey(), JSON.stringify(data));
+    renderMap(data);
+    prStatus(`Mapa mental de “${docName()}” criado e salvo para este arquivo.`);
+  }
+  $('mapGen').addEventListener('click', mapGenerate);
+  function mapLoad() {
+    try { const d = JSON.parse(loadSetting(mapKey(), 'null')); if (d) renderMap(d); else $('mapOut').replaceChildren(); } catch (_) { $('mapOut').replaceChildren(); }
+  }
+
+  // ===================== ✋ Exercícios práticos =====================
+  const shuffle = arr => { const a = [...arr]; for (let i = a.length - 1; i > 0; i--) { const j = Math.floor(Math.random() * (i + 1)); [a[i], a[j]] = [a[j], a[i]]; } return a; };
+  const exKey = () => 'ex-' + docKey();
+  function exCard(x, i, onScore) {
+    const card = el('div', { class: 'card ex-card' }, el('span', { class: 'tag', text: `Exercício ${i + 1} • ${({ ordenar: 'Ordene', ligar: 'Ligue', classificar: 'Classifique', lacuna: 'Complete' })[x.tipo] || x.tipo}` }), el('p', { class: 'q-stem', text: x.enunciado || '' }));
+    const check = el('button', { type: 'button', class: 'primary', text: 'Conferir' });
+    const result = el('p', { class: 'verdict' });
+    let scored = false;
+    const finish = (ok, total) => {
+      result.className = 'verdict ' + (ok === total ? 'ok' : 'bad');
+      result.textContent = ok === total ? `✓ Perfeito! ${ok}/${total}` : `${ok}/${total} certos. Os corretos estão em verde; refaça os vermelhos.`;
+      if (!scored) { scored = true; onScore(ok, total); }
+    };
+    if (x.tipo === 'ordenar') {
+      let order = shuffle(x.itens.map((t, k) => ({ t, k })));
+      if (order.every((o, k) => o.k === k) && order.length > 1) order.reverse();
+      const ol = el('ol', { class: 'ex-order' });
+      const draw = () => {
+        ol.replaceChildren(...order.map((o, pos) => el('li', {}, el('b', { text: `${pos + 1}.` }), el('span', { text: o.t }),
+          el('button', { type: 'button', text: '↑', 'aria-label': 'Subir', onclick: () => { if (pos) { [order[pos - 1], order[pos]] = [order[pos], order[pos - 1]]; draw(); } } }),
+          el('button', { type: 'button', text: '↓', 'aria-label': 'Descer', onclick: () => { if (pos < order.length - 1) { [order[pos + 1], order[pos]] = [order[pos], order[pos + 1]]; draw(); } } }))));
+      };
+      draw(); card.append(ol);
+      check.addEventListener('click', () => {
+        let ok = 0; [...ol.children].forEach((li, pos) => { const good = order[pos].k === pos; li.classList.toggle('ex-ok', good); li.classList.toggle('ex-bad', !good); if (good) ok++; });
+        finish(ok, order.length);
+      });
+    } else if (x.tipo === 'ligar') {
+      const opts = shuffle(x.pares.map(p => p.b));
+      const rows = x.pares.map(p => {
+        const sel = el('select', {}, new Option('— escolha —', ''), ...opts.map(o => new Option(o.length > 90 ? o.slice(0, 88) + '…' : o, o)));
+        const row = el('div', { class: 'ex-row' }, el('span', {}, el('strong', { text: p.a })), sel);
+        card.append(row); return { p, sel, row };
+      });
+      check.addEventListener('click', () => {
+        let ok = 0; rows.forEach(r => { const good = r.sel.value === r.p.b; r.sel.classList.toggle('ex-ok', good); r.sel.classList.toggle('ex-bad', !good); if (good) ok++; });
+        finish(ok, rows.length);
+      });
+    } else if (x.tipo === 'classificar') {
+      const rows = shuffle(x.itens).map(it => {
+        let chosen = null;
+        const cats = el('div', { class: 'ex-cats' }, ...x.categorias.map(c => { const b = el('button', { type: 'button', text: c, 'aria-pressed': 'false' }); b.addEventListener('click', () => { chosen = c; cats.querySelectorAll('button').forEach(z => z.setAttribute('aria-pressed', String(z === b))); }); return b; }));
+        const row = el('div', { class: 'ex-row' }, el('span', { text: it.texto }), cats);
+        card.append(row); return { it, row, get: () => chosen };
+      });
+      check.addEventListener('click', () => {
+        let ok = 0; rows.forEach(r => { const good = r.get() === r.it.categoria; r.row.querySelector(`[aria-pressed="true"]`)?.classList.toggle('ex-ok', good); r.row.querySelector(`[aria-pressed="true"]`)?.classList.toggle('ex-bad', !good); if (good) ok++; });
+        finish(ok, rows.length);
+      });
+    } else if (x.tipo === 'lacuna') {
+      const parts = String(x.texto || '').split(/\{\{(.*?)\}\}/);
+      const answers = parts.filter((_, k) => k % 2 === 1);
+      const pool = shuffle([...new Set([...answers, ...(x.distratores || [])])]);
+      const p = el('p', { class: 'ex-text' }); const sels = [];
+      parts.forEach((part, k) => {
+        if (k % 2 === 0) { p.append(part); return; }
+        const sel = el('select', { class: 'ex-gap' }, new Option('_____', ''), ...pool.map(o => new Option(o, o)));
+        sels.push({ sel, ans: part }); p.append(sel);
+      });
+      card.append(p);
+      check.addEventListener('click', () => {
+        let ok = 0; sels.forEach(s => { const good = s.sel.value === s.ans; s.sel.classList.toggle('ex-ok', good); s.sel.classList.toggle('ex-bad', !good); if (good) ok++; });
+        finish(ok, sels.length);
+      });
+    }
+    if (x.explicacao) card.append(el('details', {}, el('summary', { text: 'Ver explicação' }), el('p', { text: x.explicacao })));
+    card.append(el('div', { class: 'q-actions' }, check), result);
+    return card;
+  }
+  function renderEx(list) {
+    let ok = 0, total = 0, done = 0;
+    const score = el('div', { class: 'scorebar' }, el('span', { text: `${list.length} exercícios` }), el('button', { type: 'button', text: '↻ Novos exercícios', onclick: exGenerate }));
+    const cards = list.map((x, i) => exCard(x, i, (a, b) => { ok += a; total += b; done++; score.firstChild.textContent = `Feitos: ${done}/${list.length} • Acertos: ${ok}/${total} (${Math.round(ok / total * 100)}%)`; }));
+    $('exOut').replaceChildren(score, ...cards);
+  }
+  const exValid = x => x && (
+    (x.tipo === 'ordenar' && (x.itens || []).length >= 3) ||
+    (x.tipo === 'ligar' && (x.pares || []).length >= 3 && x.pares.every(p => p.a && p.b)) ||
+    (x.tipo === 'classificar' && (x.categorias || []).length >= 2 && (x.itens || []).length >= 3 && x.itens.every(i => x.categorias.includes(i.categoria))) ||
+    (x.tipo === 'lacuna' && /\{\{.+?\}\}/.test(x.texto || '')));
+  async function exGenerate() {
+    const t = prText(); if (!t) return;
+    const data = await prAsk(`${ILE_RULES}
+Crie 6 EXERCÍCIOS PRÁTICOS e interativos sobre o MATERIAL, para fixação de concurso, misturando os tipos (pelo menos um de cada):
+- "ordenar": etapas de um processo/procedimento na ORDEM CORRETA (4 a 6 itens, em "itens", já na ordem certa).
+- "ligar": 4 a 6 pares conceito ("a") → definição/característica ("b").
+- "classificar": 2 ou 3 "categorias" e 5 a 8 "itens", cada um com sua "categoria" (ex.: competência do TCU × do TCE; vinculado × discricionário).
+- "lacuna": um trecho do material (lei, norma ou definição) com 2 a 4 palavras-chave trocadas por {{palavra}} em "texto", e 3 "distratores" plausíveis.
+Cada exercício com "enunciado" curto e "explicacao" de 1 a 2 frases. Tudo fiel ao MATERIAL.
+Responda APENAS com JSON válido: {"exercicios":[{"tipo":"ordenar","enunciado":"string","itens":["string"],"explicacao":"string"},{"tipo":"ligar","enunciado":"string","pares":[{"a":"string","b":"string"}],"explicacao":"string"},{"tipo":"classificar","enunciado":"string","categorias":["string"],"itens":[{"texto":"string","categoria":"string"}],"explicacao":"string"},{"tipo":"lacuna","enunciado":"string","texto":"... {{palavra}} ...","distratores":["string"],"explicacao":"string"}]}
+
+MATERIAL:
+"""
+${t.text}
+"""`, 'Montando os exercícios', $('exOut'));
+    if (!data) return;
+    const list = (data.exercicios || []).filter(exValid);
+    if (!list.length) { prStatus('Os exercícios vieram incompletos. Tente de novo.', true); return; }
+    saveSetting(exKey(), JSON.stringify(list));
+    renderEx(list);
+    prStatus(`${list.length} exercícios criados para “${docName()}”.`);
+  }
+  $('exGen').addEventListener('click', exGenerate);
+  function exLoad() {
+    try { const l = JSON.parse(loadSetting(exKey(), 'null')); if (l?.length) renderEx(l); else $('exOut').replaceChildren(); } catch (_) { $('exOut').replaceChildren(); }
+  }
+  const prevPrepared2 = hooks.prepared;
+  hooks.prepared = () => { prevPrepared2?.(); mapLoad(); exLoad(); };
+  mapLoad(); exLoad();
 
   progress(); controls();
   if (!hasSpeech) status('Este navegador não oferece síntese de voz; tente Chrome ou Edge atualizado.', true);
