@@ -16,7 +16,7 @@
   <meta name="mobile-web-app-capable" content="yes">
   <meta name="apple-mobile-web-app-title" content="Leitor Ativo">
   <meta name="apple-mobile-web-app-status-bar-style" content="default">
-  <title>Leitor de Estudo Ativo • Versão 5.5</title>
+  <title>Leitor de Estudo Ativo • Versão 5.6</title>
   <!-- PDF.js (módulo moderno) é carregado somente ao abrir PDFs. Biblioteca e worker usam a mesma versão. -->
   <style>
     :root {
@@ -349,7 +349,7 @@
 <main>
   <header class="header">
     <div>
-      <div class="eyebrow">Estudo com áudio • v5.5</div>
+      <div class="eyebrow">Estudo com áudio • v5.6</div>
       <h1>Leitor de Estudo Ativo</h1>
       <p class="subtitle">Ouça, acompanhe a frase em destaque e retome de onde quiser.</p>
     </div>
@@ -3593,6 +3593,7 @@ ${t.text}
     const doc = libAdd(title, { text, pdfPages: null, ignored: [] }, libDoc(lib.activeId) ? colOf(libDoc(lib.activeId)) : undefined);
     play.addEventListener('click', () => libSwitch(doc.id, { autoplay: true }));
     prStatus(`Podcast criado e salvo na lista de arquivos como “${title}”.`);
+    return doc;
   }
   $('podGen').addEventListener('click', podGenerate);
 
@@ -4081,7 +4082,9 @@ ${section}
         m.peso = same?.peso ?? peso;
       }
     }
-    d.materias = mats; edSave(); edRenderDetail();
+    d.materias = mats;
+    if (d.observacoes) d.observacoes = d.observacoes.split(/(?<=[.!?])\s+/).filter(f => !/(anexo|conteúdo programático).*(não está|nao esta|não foi possível|nao foi possivel|trechos fornecidos)|materias vazio/i.test(f)).join(' ');
+    edSave(); edRenderDetail();
     const n = mats.reduce((a, m) => a + m.topicos.length, 0);
     edStatus(`Conteúdo programático lido: ${mats.length} matérias e ${n} tópicos. Confira e gere o cronograma.`);
   }
@@ -4211,6 +4214,7 @@ ${refText ? `\nMATERIAL DE REFERÊNCIA:\n"""\n${refText}\n"""` : ''}`, `Preparan
     edRenderToday();
     els.readerView.scrollIntoView({ behavior: 'smooth', block: 'center' });
     edStatus(`Material salvo na biblioteca (${col}). Ouça, leia como livro ou gere questões.`);
+    return doc;
   }
   function edRenderToday() {
     const plan = ed.data.plan, box = $('edToday');
@@ -4259,6 +4263,17 @@ ${refText ? `\nMATERIAL DE REFERÊNCIA:\n"""\n${refText}\n"""` : ''}`, `Preparan
           found.forEach(m => list.append(el('li', {}, el('button', { type: 'button', text: `📄 ${m.doc.name} (${colOf(m.doc)})`, onclick: () => openAtTopic(m.doc, b.topicos.join(' ')) }))));
           box2.append(list);
         } }));
+        acts.append(el('button', { type: 'button', text: '🎧 Podcast', onclick: async () => {
+          // Usa o material do dia (gera antes, se ainda não existe) e transforma em podcast.
+          if (!(b.docId && libDoc(b.docId))) { edStatus('Gerando o material do dia para o podcast…'); if (!(await edMaterial(b))) return; }
+          if (lib.activeId !== b.docId) await libSwitch(b.docId, { quiet: true });
+          edStatus('Roteirizando o podcast… ele aparece na seção 4 e na biblioteca.');
+          document.querySelector('#practice [data-tab="pod"]')?.click();
+          $('practice').scrollIntoView({ behavior: 'smooth', block: 'start' });
+          const pod = await podGenerate();
+          if (pod) { b.podId = pod.id; edSave(); libSwitch(pod.id, { autoplay: true }); edRenderToday(); }
+        } }));
+        if (b.podId && libDoc(b.podId)) acts.append(el('button', { type: 'button', text: '▶ Ouvir podcast', onclick: () => libSwitch(b.podId, { autoplay: true }) }));
         acts.append(el('button', { type: 'button', text: '❓ Questões I-L-E', onclick: async () => {
           if (b.docId && libDoc(b.docId) && lib.activeId !== b.docId) await libSwitch(b.docId, { quiet: true });
           if (!state.blocks.length) { edStatus('Abra ou gere um material primeiro.', true); return; }
