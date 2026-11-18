@@ -16,7 +16,7 @@
   <meta name="mobile-web-app-capable" content="yes">
   <meta name="apple-mobile-web-app-title" content="Leitor Ativo">
   <meta name="apple-mobile-web-app-status-bar-style" content="default">
-  <title>Leitor de Estudo Ativo • Versão 5.4</title>
+  <title>Leitor de Estudo Ativo • Versão 5.5</title>
   <!-- PDF.js (módulo moderno) é carregado somente ao abrir PDFs. Biblioteca e worker usam a mesma versão. -->
   <style>
     :root {
@@ -349,7 +349,7 @@
 <main>
   <header class="header">
     <div>
-      <div class="eyebrow">Estudo com áudio • v5.4</div>
+      <div class="eyebrow">Estudo com áudio • v5.5</div>
       <h1>Leitor de Estudo Ativo</h1>
       <p class="subtitle">Ouça, acompanhe a frase em destaque e retome de onde quiser.</p>
     </div>
@@ -4029,7 +4029,8 @@ ${slice}
   // Localiza a seção do conteúdo programático: a ocorrência com o maior trecho até o próximo "ANEXO".
   function edProgSection(text) {
     const norm = text.normalize('NFD').replace(/[̀-ͯ]/g, '').toLowerCase();
-    const anexos = [...norm.matchAll(/(?:^|\n)\s*anexo\s+(?:[ivxl]+|\d+|unico)\b/g)].map(m => m.index);
+    // Títulos podem vir marcados como "## ANEXO VI" (extração do PDF) ou em texto simples.
+    const anexos = [...norm.matchAll(/(?:^|\n)[#\s]*anexo\s+(?:[ivxl]+|\d+|unico)\b/g)].map(m => m.index);
     const starts = [...norm.matchAll(/conteudos?\s+programaticos?|programa\s+das\s+provas|conteudo\s+das\s+provas/g)].map(m => m.index);
     // Prefere o título de anexo ("ANEXO VI – CONTEÚDO PROGRAMÁTICO") a menções no meio do texto.
     let best = null;
