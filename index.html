@@ -16,7 +16,7 @@
   <meta name="mobile-web-app-capable" content="yes">
   <meta name="apple-mobile-web-app-title" content="Leitor Ativo">
   <meta name="apple-mobile-web-app-status-bar-style" content="default">
-  <title>Leitor de Estudo Ativo • Versão 5.7</title>
+  <title>Leitor de Estudo Ativo • Versão 5.8</title>
   <!-- PDF.js (módulo moderno) é carregado somente ao abrir PDFs. Biblioteca e worker usam a mesma versão. -->
   <style>
     :root {
@@ -349,7 +349,7 @@
 <main>
   <header class="header">
     <div>
-      <div class="eyebrow">Estudo com áudio • v5.7</div>
+      <div class="eyebrow">Estudo com áudio • v5.8</div>
       <h1>Leitor de Estudo Ativo</h1>
       <p class="subtitle">Ouça, acompanhe a frase em destaque e retome de onde quiser.</p>
     </div>
@@ -4218,6 +4218,113 @@ ${refText ? `\nMATERIAL DE REFERÊNCIA:\n"""\n${refText}\n"""` : ''}`, `Preparan
     edStatus(`Material salvo na biblioteca (${col}). Ouça, leia como livro ou gere questões.`);
     return doc;
   }
+
+  // ---------- 🔁 Revisão do que foi estudado ----------
+  const STUDY_TIPOS = ['teoria', 'questões', 'revisão'];
+  // Blocos estudados no período: marcados como feitos ou com material gerado (até hoje).
+  function edStudied(daysBack) {
+    const plan = ed.data.plan; if (!plan) return [];
+    const today = isoDay(new Date());
+    const from = daysBack ? isoDay(new Date(Date.now() - (daysBack - 1) * DAY)) : '0000';
+    const inRange = Object.keys(plan.days).sort().filter(d => d >= from && d <= today);
+    const pick = strict => {
+      const out = [];
+      for (const date of inRange) plan.days[date].forEach((b, i) => {
+        if (!STUDY_TIPOS.includes(b.tipo)) return;
+        if (!strict || plan.done[date + '#' + i] || (b.docId && libDoc(b.docId))) out.push({ date, b });
+      });
+      return out;
+    };
+    const strict = pick(true);
+    return strict.length ? strict : pick(false);
+  }
+  function edOpenReview(daysBack) {
+    const p = ed.data.reviewPrefs ||= { days: 7, formato: 'resumo', modo: 'ouvir', sel: null };
+    if (daysBack !== undefined) p.days = daysBack;
+    const box = $('edReview'); if (!box) return;
+    if (box.firstChild && daysBack === undefined) { box.replaceChildren(); return; } // tocar de novo recolhe
+    const draw = () => {
+      const items = edStudied(p.days);
+      const byMat = new Map();
+      for (const it of items) {
+        const m = byMat.get(it.b.materia) || { topicos: new Set(), docs: new Set() };
+        it.b.topicos.forEach(t => m.topicos.add(t)); if (it.b.docId && libDoc(it.b.docId)) m.docs.add(it.b.docId);
+        byMat.set(it.b.materia, m);
+      }
+      const mats = [...byMat.keys()];
+      const sel = new Set((p.sel || mats).filter(m => byMat.has(m)));
+      const radio = (name, val, label, cur) => el('label', {}, Object.assign(el('input', { type: 'radio', name, value: val }), { checked: cur === val }), ' ' + label);
+      const period = el('select', { 'aria-label': 'Período da revisão' },
+        ...[[7, 'Últimos 7 dias'], [14, 'Últimos 14 dias'], [30, 'Últimos 30 dias'], [0, 'Tudo o que já estudei']].map(([v, t]) => Object.assign(new Option(t, v), { selected: p.days === v })));
+      period.addEventListener('change', () => { p.days = Number(period.value); p.sel = null; edSave(); draw(); });
+      const list = el('div', { class: 'ed-days', style: 'flex-direction:column;align-items:flex-start' });
+      if (!mats.length) list.append(el('span', { class: 'hint', text: 'Nada estudado neste período ainda. Marque blocos como ✓ Feito ou gere o material do dia.' }));
+      for (const m of mats) {
+        const info = byMat.get(m);
+        const cb = Object.assign(el('input', { type: 'checkbox', value: m }), { checked: sel.has(m) });
+        cb.addEventListener('change', () => { if (cb.checked) sel.add(m); else sel.delete(m); p.sel = [...sel]; edSave(); });
+        list.append(el('label', {}, cb, ` ${m} `, el('span', { class: 'grp-tag', text: `${info.topicos.size} tópicos • ${info.docs.size} materiais` })));
+      }
+      const fmt = el('div', { class: 'ed-days' }, radio('rvFmt', 'resumo', 'Resumo de revisão (IA, ~10 min)', p.formato), radio('rvFmt', 'completo', 'Material completo estudado', p.formato));
+      const modo = el('div', { class: 'ed-days' }, radio('rvModo', 'ouvir', '🎧 Ouvir', p.modo), radio('rvModo', 'ler', '📖 Ler (modo livro)', p.modo));
+      const go = el('button', { type: 'button', class: 'primary', text: '🔁 Começar revisão' });
+      go.addEventListener('click', () => {
+        p.formato = box.querySelector('input[name=rvFmt]:checked')?.value || 'resumo';
+        p.modo = box.querySelector('input[name=rvModo]:checked')?.value || 'ouvir';
+        p.sel = [...sel]; edSave();
+        edMakeReview([...sel].map(m => ({ materia: m, topicos: [...byMat.get(m).topicos], docs: [...byMat.get(m).docs] })), p);
+      });
+      box.replaceChildren(el('div', { class: 'block' },
+        el('h4', { text: '🔁 Revisão' }),
+        el('div', { class: 'field' }, el('span', { class: 'label', text: 'Período' }), period),
+        el('div', { class: 'field', style: 'margin-top:8px' }, el('span', { class: 'label', text: 'Matérias' }), list),
+        el('div', { class: 'field', style: 'margin-top:8px' }, el('span', { class: 'label', text: 'Formato' }), fmt),
+        el('div', { class: 'field', style: 'margin-top:8px' }, el('span', { class: 'label', text: 'Como revisar' }), modo),
+        el('div', { class: 'q-actions' }, go)));
+    };
+    draw();
+    box.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+  }
+  async function edMakeReview(groups, p) {
+    if (!groups.length) { edStatus('Escolha pelo menos uma matéria para revisar.', true); return; }
+    const when = new Date().toLocaleDateString('pt-BR', { day: '2-digit', month: '2-digit' });
+    const names = groups.map(g => g.materia);
+    const title = `🔁 Revisão ${when} • ${names.length === 1 ? names[0] : names.length + ' matérias'}`.slice(0, 110);
+    const col = `${(ed.data.concurso?.orgao || 'Concurso').slice(0, 40)} › Revisões`;
+    let text;
+    if (p.formato === 'completo') {
+      const parts = [];
+      for (const g of groups) {
+        parts.push(`## ${g.materia}`);
+        if (!g.docs.length) parts.push(`Tópicos estudados: ${g.topicos.join('; ')}. (Sem material salvo para estas datas.)`);
+        for (const id of g.docs) parts.push(libDoc(id).text);
+      }
+      text = parts.join('\n\n');
+    } else {
+      const budget = Math.floor(70000 / groups.length);
+      const material = groups.map(g => `### ${g.materia}\nTópicos: ${g.topicos.join('; ')}\n` + g.docs.map(id => libDoc(id).text).join('\n\n').slice(0, budget)).join('\n\n');
+      const data = await edAsk(`Você é professor de revisão para concursos (${ed.data.plan?.vaga || ''}). Crie uma REVISÃO para ser ouvida ou lida em cerca de 10 minutos (1.200 a 1.600 palavras no total), cobrindo as matérias e tópicos abaixo, com base no MATERIAL ESTUDADO pelo aluno (use conhecimento consolidado só para tópicos sem material; não invente normas).
+Para CADA matéria, uma seção com: os conceitos essenciais em frases curtas; distinções que caem em prova; pegadinhas; e 3 perguntas rápidas de autoavaliação com a resposta logo em seguida.
+Texto corrido e fácil de ouvir (sem tabelas). Português do Brasil.
+Responda APENAS com JSON válido: {"secoes":[{"titulo":"nome da matéria","texto":"string"}]}
+
+MATERIAL ESTUDADO:
+"""
+${material}
+"""`, 'Preparando a revisão');
+      if (!data) return;
+      const secs = (data.secoes || []).filter(x => x?.texto);
+      if (!secs.length) { edStatus('A revisão veio vazia. Tente de novo.', true); return; }
+      text = secs.map(x => `## ${x.titulo || ''}\n\n${x.texto}`).join('\n\n');
+    }
+    const doc = libAdd(title, { text, pdfPages: null, ignored: [] }, col);
+    (ed.data.reviews ||= []).push({ id: doc.id, em: Date.now(), materias: names });
+    edSave();
+    edStatus(`Revisão pronta e salva na biblioteca (${col}).`);
+    if (p.modo === 'ler') { await libSwitch(doc.id, { quiet: true }); openBook(); }
+    else await edOpenDoc(doc.id, true);
+  }
+
   // Abre um arquivo do cronograma e rola até o leitor (que fica mais abaixo na página).
   async function edOpenDoc(id, play = false) {
     await libSwitch(id, { quiet: true, autoplay: play });
@@ -4298,12 +4405,15 @@ ${refText ? `\nMATERIAL DE REFERÊNCIA:\n"""\n${refText}\n"""` : ''}`, `Preparan
           ile.out.closest('section')?.scrollIntoView({ behavior: 'smooth', block: 'start' });
           ile.run('questions');
         } }));
+      } else if (/revis/.test(b.tipo)) {
+        acts.append(el('button', { type: 'button', class: 'primary', text: '🔁 Fazer a revisão', onclick: () => edOpenReview(b.tipo === 'revisão final' ? 0 : 7) }));
       }
       acts.append(el('button', { type: 'button', text: done ? '↺ Desmarcar' : '✓ Feito', onclick: () => { if (done) delete plan.done[key]; else plan.done[key] = Date.now(); edSave(); edRenderToday(); } }));
       box2.append(acts);
       card.append(box2);
     });
-    card.append(el('div', { class: 'q-actions' }, el('button', { type: 'button', text: '⚙ Edital, vaga e cronograma', onclick: () => { $('edSetup').open = true; $('edSetup').scrollIntoView({ behavior: 'smooth', block: 'start' }); } })));
+    card.append(el('div', { id: 'edReview' }));
+    card.append(el('div', { class: 'q-actions' }, el('button', { type: 'button', text: '🔁 Revisão', onclick: () => edOpenReview() }), el('button', { type: 'button', text: '⚙ Edital, vaga e cronograma', onclick: () => { $('edSetup').open = true; $('edSetup').scrollIntoView({ behavior: 'smooth', block: 'start' }); } })));
     box.replaceChildren(card);
   }
   edRenderVagas(); edRenderDetail(); edRenderToday();

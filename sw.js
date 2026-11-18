@@ -1,6 +1,6 @@
 // Service worker do Leitor de Estudo Ativo.
 // Mude a versão sempre que publicar alterações, para os aparelhos baixarem a nova versão.
-const VERSION = 'v5.7.0';
+const VERSION = 'v5.8.0';
 const APP_CACHE = `leitor-app-${VERSION}`;
 const LIB_CACHE = 'leitor-libs-v1';
 
