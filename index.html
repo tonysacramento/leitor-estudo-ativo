@@ -16,7 +16,7 @@
   <meta name="mobile-web-app-capable" content="yes">
   <meta name="apple-mobile-web-app-title" content="Leitor Ativo">
   <meta name="apple-mobile-web-app-status-bar-style" content="default">
-  <title>Leitor de Estudo Ativo • Versão 5.9</title>
+  <title>Leitor de Estudo Ativo • Versão 5.10</title>
   <!-- PDF.js (módulo moderno) é carregado somente ao abrir PDFs. Biblioteca e worker usam a mesma versão. -->
   <style>
     :root {
@@ -352,7 +352,7 @@
 <main>
   <header class="header">
     <div>
-      <div class="eyebrow">Estudo com áudio • v5.9</div>
+      <div class="eyebrow">Estudo com áudio • v5.10</div>
       <h1>Leitor de Estudo Ativo</h1>
       <p class="subtitle">Ouça, acompanhe a frase em destaque e retome de onde quiser.</p>
     </div>
@@ -781,34 +781,31 @@
 
   // As vozes são carregadas assincronamente em muitos navegadores.
   function voiceKey(voice) { return [voice.voiceURI, voice.lang, voice.name].join('||'); }
+  // Alguns Android informam o idioma como "pt_BR" (com sublinhado).
+  const voiceLang = v => String(v.lang || '').replace('_', '-');
+  const voicePriority = v => /^pt-BR$/i.test(voiceLang(v)) ? 0 : /^pt(-|$)/i.test(voiceLang(v)) ? 1 : 2;
   function populateVoices() {
     if (!hasSpeech) {
       els.voiceSelect.innerHTML = '<option value="">Síntese de voz não suportada</option>';
       return;
     }
     const voices = synth.getVoices();
-    const current = els.voiceSelect.value || loadSetting('voice', '');
-    const ordered = [...voices].sort((a, b) => {
-      // Alguns Android informam o idioma como "pt_BR" (com sublinhado).
-      const lang = v => String(v.lang || '').replace('_', '-');
-      const priority = v => /^pt-BR$/i.test(lang(v)) ? 0 : /^pt(-|$)/i.test(lang(v)) ? 1 : 2;
-      return priority(a) - priority(b) || a.name.localeCompare(b.name, 'pt-BR');
-    });
+    // A escolha salva vem primeiro; durante a leitura, mantém a voz que está tocando.
+    const saved = loadSetting('voice', '');
+    const current = (state.mode !== 'idle' && state.lockedVoice) || saved || els.voiceSelect.value;
+    const ordered = [...voices].sort((a, b) => voicePriority(a) - voicePriority(b) || a.name.localeCompare(b.name, 'pt-BR'));
     els.voiceSelect.replaceChildren();
     if (!ordered.length) {
-      const option = new Option('Voz automática do navegador', '');
-      els.voiceSelect.add(option);
+      els.voiceSelect.add(new Option('Voz automática do navegador', ''));
       hooks.voices?.();
       return;
     }
-    for (const voice of ordered) {
-      const option = new Option(`${voice.name} (${voice.lang})${voice.localService ? ' • dispositivo' : ''}`, voiceKey(voice));
-      els.voiceSelect.add(option);
-    }
-    // Uma voz salva que não é em português (ex.: escolhida por engano) é trocada pela melhor em português.
+    for (const voice of ordered) els.voiceSelect.add(new Option(`${voice.name} (${voice.lang})${voice.localService ? ' • dispositivo' : ''}`, voiceKey(voice)));
+    // Uma voz salva que não é em português (escolhida por engano) é trocada pela melhor em português,
+    // a menos que você a tenha escolhido de propósito.
     const savedVoice = ordered.find(v => voiceKey(v) === current);
-    const found = !!savedVoice && (priority(savedVoice) < 2 || priority(ordered[0]) === 2 || loadSetting('voice-manual', '') === 'yes');
-    els.voiceSelect.value = found ? current : voiceKey(ordered[0]);
+    const keep = !!savedVoice && (voicePriority(savedVoice) < 2 || voicePriority(ordered[0]) === 2 || loadSetting('voice-manual', '') === 'yes');
+    els.voiceSelect.value = keep ? current : voiceKey(ordered[0]);
     hooks.voices?.();
   }
   populateVoices();
@@ -1075,7 +1072,10 @@
 
   function chosenVoice() {
     if (!hasSpeech) return null;
-    return synth.getVoices().find(v => voiceKey(v) === els.voiceSelect.value) || null;
+    const voices = synth.getVoices();
+    // Usa a mesma voz do começo ao fim da leitura, mesmo que a lista de vozes mude no meio.
+    if (!state.lockedVoice || !voices.some(v => voiceKey(v) === state.lockedVoice)) state.lockedVoice = els.voiceSelect.value;
+    return voices.find(v => voiceKey(v) === state.lockedVoice) || null;
   }
   function finishReading() {
     if (hooks.finished?.()) return;
@@ -1140,6 +1140,7 @@
     setActive(state.index);
     controls();
     // Pequeno atraso ajuda os navegadores a liberar o áudio anterior após cancel().
+    state.lockedVoice = els.voiceSelect.value;
     if (hooks.playFrom?.(state.index, token)) return;
     setTimeout(() => speakBlock(state.index, token), 45);
   }
@@ -2969,7 +2970,9 @@ ${text}
   function ctLines(from, to) {
     const reps = Number(els.repeatSelect.value) || 1, voice = els.voiceSelect.value.slice(7) || 'buttery', rate = ctRate();
     const out = [];
-    for (let i = from; i < to; i++) for (let r = 0; r < reps; r++) out.push({ text: state.blocks[i].text, id: String(i), voice, rate });
+    // Sem o idioma, a voz adivinha frase a frase e pode trocar de sotaque.
+    const language = looksPortuguese() ? 'pt-BR' : undefined;
+    for (let i = from; i < to; i++) for (let r = 0; r < reps; r++) out.push({ text: state.blocks[i].text, id: String(i), voice, rate, ...(language ? { language } : {}) });
     return out;
   }
   function ctTrack(promise, upto, token) {
@@ -3001,6 +3004,12 @@ ${text}
     els.voiceSelect.querySelector('optgroup[data-claude]')?.remove();
     if (els.voiceSelect.value.startsWith('claude:') || !els.voiceSelect.value) els.voiceSelect.selectedIndex = 0;
     saveSetting('voice', els.voiceSelect.value);
+  }
+  function looksPortuguese() {
+    const sample = ' ' + state.blocks.slice(0, 60).map(b => b.text).join(' ').toLowerCase() + ' ';
+    const pt = (sample.match(/ (de|que|não|para|com|uma|os|das|dos|ção|ções|é) /g) || []).length + (sample.match(/ção|ções|ão /g) || []).length;
+    const en = (sample.match(/ (the|and|of|to|is|with|for|that) /g) || []).length;
+    return pt > en * 1.5;
   }
   function ctAddVoices() {
     if (!ct.t || els.voiceSelect.querySelector('optgroup[data-claude]')) return;
