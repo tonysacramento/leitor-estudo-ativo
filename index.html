@@ -16,7 +16,7 @@
   <meta name="mobile-web-app-capable" content="yes">
   <meta name="apple-mobile-web-app-title" content="Leitor Ativo">
   <meta name="apple-mobile-web-app-status-bar-style" content="default">
-  <title>Leitor de Estudo Ativo • Versão 5.10</title>
+  <title>Leitor de Estudo Ativo • Versão 5.11</title>
   <!-- PDF.js (módulo moderno) é carregado somente ao abrir PDFs. Biblioteca e worker usam a mesma versão. -->
   <style>
     :root {
@@ -352,7 +352,7 @@
 <main>
   <header class="header">
     <div>
-      <div class="eyebrow">Estudo com áudio • v5.10</div>
+      <div class="eyebrow">Estudo com áudio • v5.11</div>
       <h1>Leitor de Estudo Ativo</h1>
       <p class="subtitle">Ouça, acompanhe a frase em destaque e retome de onde quiser.</p>
     </div>
@@ -584,7 +584,11 @@
       <div id="discOut" class="ile-out"></div>
     </div>
     <div class="pr-pane" data-pane="pod" hidden>
-      <p class="hint">Transforma o material em um <strong>podcast de 5 a 8 minutos</strong>, explicado como numa aula, que entra na sua lista de arquivos para ouvir com o player (inclusive no modo livro).</p>
+      <p class="hint">Transforma o material em áudio de 5 a 9 minutos, que entra na sua biblioteca para ouvir com o player (inclusive no modo livro).</p>
+      <div class="ed-days" style="margin-top:6px">
+        <label><input type="radio" name="podStyle" value="aula" checked> 🎙 Aula: explicação direta</label>
+        <label><input type="radio" name="podStyle" value="historia"> 📖 História: o conceito numa situação real</label>
+      </div>
       <div class="toolbar" style="margin-top:6px">
         <button type="button" class="primary" id="podGen">🎧 Criar podcast deste arquivo</button>
       </div>
@@ -3584,9 +3588,26 @@ ${t.empty ? '' : `\nMATERIAL DE ESTUDO (referência):\n"""\n${t.text.slice(0, 40
     status(`${label} carregado no leitor. Para voltar ao material, abra o arquivo na lista.`);
     playFrom(0);
   }
+  // Storytelling: uma história verossímil do serviço público em que cada conceito aparece, é nomeado e explicado.
+  function storyRules(context) {
+    return `Crie uma HISTÓRIA DE ESTUDO (storytelling) para ser ouvida em 6 a 9 minutos (900 a 1.300 palavras), que ensine os conceitos do MATERIAL por meio de uma situação real e verossímil${context ? ` ligada a ${context}` : ' do serviço público (um órgão, um tribunal, uma auditoria, um contrato, um sistema)'}.
+- Personagens com nome e objetivo, um problema concreto, decisões e consequências. Órgãos e pessoas FICTÍCIOS; normas e conceitos REAIS e fiéis ao MATERIAL (não invente artigos, números ou prazos).
+- Sempre que um conceito surgir na trama, nomeie-o e explique em uma frase, por exemplo: "Isso é o que o COBIT chama de…". Inclua pelo menos um momento em que um personagem quase comete o erro típico que as bancas cobram.
+- Texto corrido, frases curtas, fácil de ouvir (sem tabelas, listas ou símbolos).
+- Capítulos: 3 a 5 da história e, por último, "O que a história ensinou": cada cena ligada ao conceito correspondente, e 3 perguntas rápidas com a resposta logo depois.`;
+  }
   async function podGenerate() {
     const t = prText(); if (!t) return;
-    const data = await prAsk(`${ILE_RULES}
+    const story = (document.querySelector('input[name=podStyle]:checked')?.value || 'aula') === 'historia';
+    saveSetting('pod-style', story ? 'historia' : 'aula');
+    const data = await prAsk(story ? `${ILE_RULES}
+${storyRules(ed.data.plan?.vaga ? 'as atribuições do cargo de ' + ed.data.plan.vaga : '')}
+Responda APENAS com JSON válido: {"titulo":"string","capitulos":[{"titulo":"string","narracao":"texto corrido para ser lido em voz alta"}]}
+
+MATERIAL:
+"""
+${t.text}
+"""` : `${ILE_RULES}
 Transforme o MATERIAL em um PODCAST DE ESTUDO narrado por um professor, com 5 a 8 minutos de fala (cerca de 800 a 1.200 palavras no total).
 - Tom de aula, claro e envolvente, frases curtas, fácil de ouvir (sem tabelas, listas com marcadores ou símbolos; números e siglas escritos como se fala quando ajudar).
 - 4 a 6 capítulos: abertura com o porquê do tema; os pontos principais; pegadinhas de prova; fechamento com revisão rápida e um mnemônico.
@@ -3596,15 +3617,15 @@ Responda APENAS com JSON válido: {"titulo":"string","capitulos":[{"titulo":"str
 MATERIAL:
 """
 ${t.text}
-"""`, 'Roteirizando o podcast', $('podOut'));
+"""`, story ? 'Escrevendo a história' : 'Roteirizando o podcast', $('podOut'));
     if (!data) return;
     const chapters = (data.capitulos || []).filter(c => c?.narracao);
     if (!chapters.length) { prStatus('O roteiro veio vazio. Tente de novo.', true); return; }
     const srcId = lib.activeId;
-    const title = ('🎧 ' + (data.titulo || 'Podcast')).slice(0, 90);
+    const title = ((story ? '📖 ' : '🎧 ') + (data.titulo || (story ? 'História' : 'Podcast'))).slice(0, 90);
     const text = chapters.map(c => `## ${c.titulo || 'Capítulo'}\n\n${c.narracao}`).join('\n\n');
     const words = (text.match(/\S+/g) || []).length;
-    const card = el('div', { class: 'card' }, el('span', { class: 'tag', text: `Podcast • ~${Math.max(1, Math.round(words / 160))} min` }), el('h3', { text: data.titulo || 'Podcast' }));
+    const card = el('div', { class: 'card' }, el('span', { class: 'tag', text: `${story ? 'História' : 'Podcast'} • ~${Math.max(1, Math.round(words / 160))} min` }), el('h3', { text: data.titulo || 'Podcast' }));
     const ul = el('ol'); chapters.forEach(c => ul.append(el('li', { text: c.titulo || 'Capítulo' }))); card.append(ul);
     const play = el('button', { type: 'button', class: 'primary', text: '▶ Ouvir agora' });
     card.append(el('div', { class: 'q-actions' }, play));
@@ -3612,11 +3633,12 @@ ${t.text}
     // Entra na lista de arquivos: guarda a posição e permite ouvir no modo livro.
     const doc = libAdd(title, { text, pdfPages: null, ignored: [] }, libDoc(lib.activeId) ? colOf(libDoc(lib.activeId)) : undefined);
     play.addEventListener('click', async () => { await libSwitch(doc.id, { autoplay: true }); els.readerView.closest('section')?.scrollIntoView({ behavior: 'smooth', block: 'start' }); });
-    prStatus(`Podcast criado e salvo na biblioteca como “${title}”.`);
+    prStatus(`${story ? 'História criada' : 'Podcast criado'} e salvo na biblioteca como “${title}”.`);
     hooks.podCreated?.(srcId, doc);
     return doc;
   }
   $('podGen').addEventListener('click', podGenerate);
+  { const st = loadSetting('pod-style', 'aula'); const r = document.querySelector(`input[name=podStyle][value="${st}"]`); if (r) r.checked = true; }
 
   // Atualiza flashcards e rascunho quando o arquivo aberto muda.
   const prevPrepared = hooks.prepared;
@@ -4304,7 +4326,7 @@ ${refText ? `\nMATERIAL DE REFERÊNCIA:\n"""\n${refText}\n"""` : ''}`, `Preparan
         cb.addEventListener('change', () => { if (cb.checked) sel.add(m); else sel.delete(m); p.sel = [...sel]; edSave(); });
         list.append(el('label', {}, cb, ` ${m} `, el('span', { class: 'grp-tag', text: `${info.topicos.size} tópicos • ${info.docs.size} materiais` })));
       }
-      const fmt = el('div', { class: 'ed-days' }, radio('rvFmt', 'resumo', 'Resumo de revisão (IA, ~10 min)', p.formato), radio('rvFmt', 'completo', 'Material completo estudado', p.formato));
+      const fmt = el('div', { class: 'ed-days' }, radio('rvFmt', 'resumo', 'Resumo de revisão (IA, ~10 min)', p.formato), radio('rvFmt', 'historia', '📖 História (storytelling)', p.formato), radio('rvFmt', 'completo', 'Material completo estudado', p.formato));
       const modo = el('div', { class: 'ed-days' }, radio('rvModo', 'ouvir', '🎧 Ouvir', p.modo), radio('rvModo', 'ler', '📖 Ler (modo livro)', p.modo));
       const go = el('button', { type: 'button', class: 'primary', text: '🔁 Começar revisão' });
       go.addEventListener('click', () => {
@@ -4328,10 +4350,25 @@ ${refText ? `\nMATERIAL DE REFERÊNCIA:\n"""\n${refText}\n"""` : ''}`, `Preparan
     if (!groups.length) { edStatus('Escolha pelo menos uma matéria para revisar.', true); return; }
     const when = new Date().toLocaleDateString('pt-BR', { day: '2-digit', month: '2-digit' });
     const names = groups.map(g => g.materia);
-    const title = `🔁 Revisão ${when} • ${names.length === 1 ? names[0] : names.length + ' matérias'}`.slice(0, 110);
+    const title = `${p.formato === 'historia' ? '📖 História' : '🔁 Revisão'} ${when} • ${names.length === 1 ? names[0] : names.length + ' matérias'}`.slice(0, 110);
     const col = `${(ed.data.concurso?.orgao || 'Concurso').slice(0, 40)} › Revisões`;
     let text;
-    if (p.formato === 'completo') {
+    if (p.formato === 'historia') {
+      const budget = Math.floor(60000 / groups.length);
+      const material = groups.map(g => `### ${g.materia}\nTópicos: ${g.topicos.join('; ')}\n` + g.docs.map(id => libDoc(id).text).join('\n\n').slice(0, budget)).join('\n\n');
+      const data = await edAsk(`${storyRules('as atribuições do cargo de ' + (ed.data.plan?.vaga || 'servidor público'))}
+- É uma REVISÃO: a história deve passar por TODAS as matérias abaixo, de forma natural na mesma trama (um capítulo pode focar uma matéria). Use conhecimento consolidado só para tópicos sem material.
+Português do Brasil. Responda APENAS com JSON válido: {"titulo":"string","capitulos":[{"titulo":"string","narracao":"string"}]}
+
+MATERIAL ESTUDADO:
+"""
+${material}
+"""`, 'Escrevendo a história de revisão');
+      if (!data) return;
+      const caps = (data.capitulos || []).filter(x => x?.narracao);
+      if (!caps.length) { edStatus('A história veio vazia. Tente de novo.', true); return; }
+      text = (data.titulo ? `## ${data.titulo}\n\n` : '') + caps.map(x => `## ${x.titulo || ''}\n\n${x.narracao}`).join('\n\n');
+    } else if (p.formato === 'completo') {
       const parts = [];
       for (const g of groups) {
         parts.push(`## ${g.materia}`);
