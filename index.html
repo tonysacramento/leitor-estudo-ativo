@@ -16,7 +16,7 @@
   <meta name="mobile-web-app-capable" content="yes">
   <meta name="apple-mobile-web-app-title" content="Leitor Ativo">
   <meta name="apple-mobile-web-app-status-bar-style" content="default">
-  <title>Leitor de Estudo Ativo • Versão 5.1</title>
+  <title>Leitor de Estudo Ativo • Versão 5.2</title>
   <!-- PDF.js (módulo moderno) é carregado somente ao abrir PDFs. Biblioteca e worker usam a mesma versão. -->
   <style>
     :root {
@@ -241,6 +241,22 @@
     .lib-close { padding: 6px 10px; }
     .lib-add { width: 100%; }
     .lib-auto { font-size: .84rem; }
+    .lib-dest { margin: 0; }
+    .lib-caret { display: inline-block; width: 1em; transition: transform .15s; }
+    .lib-group.open .lib-caret { transform: rotate(90deg); }
+    .lib-sub { list-style: none; margin: 6px 0 4px 10px; padding: 0 0 0 8px; border-left: 2px solid var(--border); display: flex; flex-direction: column; gap: 8px; }
+    .lib-row { display: flex; gap: 6px; }
+    .lib-row .lib-add { flex: 1; }
+    .lib-row input { flex: 1; min-width: 0; padding: 8px 10px; border: 1px solid var(--border); border-radius: 9px; background: var(--surface); color: var(--text); }
+    .lib-group { list-style: none; margin: 4px 0 0; }
+    .lib-ghead { display: flex; gap: 4px; align-items: stretch; }
+    .lib-gbtn { flex: 1; text-align: left; padding: 9px 11px; background: var(--surface-2); }
+    .lib-gbtn strong { display: block; overflow-wrap: anywhere; }
+    .lib-gbtn .lib-meta { margin-top: 2px; }
+    .lib-gdel { padding: 4px 9px; font-size: .78rem; }
+    .lib-gdel.confirm { color: #b42318; border-color: #b42318; }
+    .lib-item.pending .lib-open { opacity: .7; }
+    .lib-back { width: 100%; text-align: left; font-size: .85rem; padding: 7px 10px; }
     .lib-list { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 8px; }
     .lib-item { border: 1px solid var(--border); border-radius: 11px; background: var(--surface-2); overflow: hidden; }
     .lib-item.active { border-color: var(--primary); box-shadow: inset 4px 0 0 var(--primary); }
@@ -283,18 +299,27 @@
 </head>
 <body>
 <aside id="library" class="library" aria-label="Arquivos de leitura">
-  <div class="lib-head"><strong>📚 Arquivos</strong><button type="button" id="libClose" class="lib-close" aria-label="Fechar a lista">✕</button></div>
-  <button type="button" id="libAdd" class="primary lib-add">＋ Adicionar arquivos</button>
+  <div class="lib-head"><strong>📚 Biblioteca</strong><button type="button" id="libClose" class="lib-close" aria-label="Fechar a lista">✕</button></div>
+  <p class="hint lib-dest" id="libDest"></p>
+  <div class="lib-row">
+    <button type="button" id="libAdd" class="primary lib-add">＋ Arquivos</button>
+    <button type="button" id="libFolder" class="lib-add" title="Sobe uma pasta inteira; cada subpasta vira uma matéria">📁 Pasta</button>
+  </div>
+  <div class="lib-row">
+    <input type="text" id="libNewCol" placeholder="Nova matéria (ex.: TCE-SP › Direito)" aria-label="Nome da nova matéria">
+    <button type="button" id="libNewColBtn" aria-label="Criar matéria">＋</button>
+  </div>
+  <input type="file" id="folderInput" class="file-input-hidden" multiple webkitdirectory directory aria-hidden="true" tabindex="-1">
   <button type="button" id="libEdital" class="lib-add">📚 Conteúdo do edital TCE-SP</button>
   <label class="toggle lib-auto"><input type="checkbox" id="libAuto" checked> Ao terminar, seguir para o próximo</label>
   <ol id="libList" class="lib-list"></ol>
-  <p id="libEmpty" class="hint">Nenhum arquivo ainda. Selecione vários PDFs ou TXTs de uma vez: eles ficam salvos aqui, cada um com a posição onde você parou.</p>
+  <p id="libEmpty" class="hint">Nenhum arquivo ainda. Suba uma pasta (cada subpasta vira uma matéria) ou vários PDFs: eles ficam guardados aqui e cada matéria é preparada quando você toca nela.</p>
 </aside>
 <div id="libBackdrop" class="lib-backdrop" hidden></div>
 <main>
   <header class="header">
     <div>
-      <div class="eyebrow">Estudo com áudio • v5.1</div>
+      <div class="eyebrow">Estudo com áudio • v5.2</div>
       <h1>Leitor de Estudo Ativo</h1>
       <p class="subtitle">Ouça, acompanhe a frase em destaque e retome de onde quiser.</p>
     </div>
@@ -315,6 +340,7 @@
           <span class="hint">pode selecionar vários • ou arraste e solte aqui</span>
         </label>
         <input type="file" id="fileInput" class="file-input-hidden" multiple aria-labelledby="fileLabel">
+        <button type="button" id="btnFolder" class="edital-btn">📁 Subir pasta de materiais (cada subpasta vira uma matéria)</button>
         <button type="button" id="btnEdital" class="edital-btn">📚 Adicionar o conteúdo do edital TCE-SP (90 tópicos, dicionário e mapas)</button>
         <span class="hint" id="fileHint">PDF com texto selecionável, TXT ou Markdown. Vários arquivos formam uma lista de leitura.</span>
       </div>
@@ -1437,6 +1463,8 @@
   async function handleFiles(fileList) {
     const files = [...(fileList || [])].filter(Boolean);
     if (!files.length) return;
+    const fromFolder = files.some(f => (f.__path || f.webkitRelativePath || '').includes('/'));
+    if (fromFolder || files.length > 3) return stashFiles(files);
     const job = ++state.importJob;
     setBusy(true);
     const added = [], failed = [];
@@ -2440,11 +2468,12 @@ ${text}
     let opening = null;
     const open = () => opening || (opening = new Promise((resolve, reject) => {
       try {
-        const req = indexedDB.open('leitor-ativo', 2);
+        const req = indexedDB.open('leitor-ativo', 3);
         req.onupgradeneeded = () => {
           const db = req.result;
           if (!db.objectStoreNames.contains('docs')) db.createObjectStore('docs', { keyPath: 'id' });
           if (!db.objectStoreNames.contains('images')) db.createObjectStore('images', { keyPath: 'id' }).createIndex('doc', 'docId');
+          if (!db.objectStoreNames.contains('files')) db.createObjectStore('files', { keyPath: 'id' });
         };
         req.onsuccess = () => resolve(req.result);
         req.onerror = () => reject(req.error);
@@ -2464,6 +2493,9 @@ ${text}
       put: doc => run('docs', 'readwrite', s => s.put(doc)),
       del: id => run('docs', 'readwrite', s => s.delete(id)),
       putImage: rec => run('images', 'readwrite', s => s.put(rec)),
+      putFile: rec => run('files', 'readwrite', s => s.put(rec)),
+      getFile: id => run('files', 'readonly', s => s.get(id)),
+      delFile: id => run('files', 'readwrite', s => s.delete(id)),
       imagesOf: docId => run('images', 'readonly', s => s.index('doc').getAll(docId)),
       delImagesOf: docId => run('images', 'readwrite', s => {
         const req = s.index('doc').openCursor(docId);
@@ -2480,14 +2512,16 @@ ${text}
   }
   const libDoc = id => lib.docs.find(d => d.id === id) || null;
   const countWords = text => (text.match(/\S+/g) || []).length;
-  function libAdd(name, result) {
+  const COL_DEFAULT = 'Geral';
+  const colOf = doc => doc.col || COL_DEFAULT;
+  function libAdd(name, result, col) {
     const existing = lib.docs.find(d => d.name === name && d.text === result.text);
     if (existing) { if (result.pdfPages) lib.pdf.set(existing.id, { pages: result.pdfPages, ignored: result.ignored }); return existing; }
     const doc = {
       id: 'd' + Date.now().toString(36) + Math.random().toString(36).slice(2, 7), name,
       kind: result.pdfPages ? 'PDF' : /\.(md|markdown)$/i.test(name) ? 'MD' : 'TXT',
       text: result.text, total: 0, words: countWords(result.text), added: Date.now(),
-      images: (result.images || []).map(im => im.id)
+      images: (result.images || []).map(im => im.id), col: col || lib.meta.col || COL_DEFAULT
     };
     for (const im of result.images || []) { rememberImage(im); libDb.putImage({ id: im.id, docId: doc.id, blob: im.blob, w: im.w, h: im.h }); }
     doc.total = segmentText(result.text).length;
@@ -2510,6 +2544,7 @@ ${text}
   }
   async function libSwitch(id, { autoplay = false, quiet = false } = {}) {
     const doc = libDoc(id); if (!doc) return;
+    if (doc.pending) { status(`Preparando “${doc.name}”…`); if (!(await prepareDoc(doc))) return; }
     cancelSession();
     lib.activeId = id;
     const pdf = lib.pdf.get(id);
@@ -2540,11 +2575,11 @@ ${text}
     const wasActive = id === lib.activeId;
     const gone = lib.docs[i];
     lib.docs.splice(i, 1); lib.pdf.delete(id); delete lib.meta.pos[id]; delete lib.meta.done[id];
-    libDb.del(id); libDb.delImagesOf(id);
+    libDb.del(id); libDb.delImagesOf(id); libDb.delFile(id);
     for (const imgId of gone.images || []) { const im = images.get(imgId); if (im) { URL.revokeObjectURL(im.url); images.delete(imgId); } }
     if (wasActive) {
       stop(); lib.activeId = null; lib.blocksRef = null;
-      const next = lib.docs[i] || lib.docs[i - 1];
+      const next = lib.docs.slice(i).find(d => colOf(d) === colOf(gone) && !d.pending) || lib.docs.slice(0, i).reverse().find(d => colOf(d) === colOf(gone) && !d.pending);
       if (next) libSwitch(next.id, { quiet: true });
       else {
         els.textInput.value = ''; state.blocks = []; state.index = 0; state.fileName = '';
@@ -2567,7 +2602,7 @@ ${text}
     const done = !!lib.meta.done[doc.id];
     const pct = done ? 100 : Math.min(100, Math.round(pos / total * 100));
     const li = document.createElement('li');
-    li.className = 'lib-item' + (active ? ' active' : '');
+    li.className = 'lib-item' + (active ? ' active' : '') + (doc.pending ? ' pending' : '');
     const open = document.createElement('button');
     open.type = 'button'; open.className = 'lib-open';
     open.setAttribute('aria-current', active ? 'true' : 'false');
@@ -2575,7 +2610,7 @@ ${text}
     name.append(Object.assign(document.createElement('span'), { className: 'lib-kind', textContent: doc.kind }), document.createTextNode(doc.name));
     const meta = document.createElement('span'); meta.className = 'lib-meta';
     if (active) meta.append(Object.assign(document.createElement('span'), { className: 'lib-now', textContent: state.mode === 'playing' ? '🔊 Lendo agora • ' : 'Aberto • ' }));
-    meta.append(done ? '✓ Concluído' : `${pct}% • ${formatMinutes((doc.words || 0) * (1 - pct / 100) / 200)} restantes`);
+    meta.append(doc.pending ? (doc.error ? `⚠ ${doc.error}` : (lib.preparingId === doc.id ? '⏳ Preparando…' : '⏳ Aguardando preparo • toque para abrir')) : done ? '✓ Concluído' : `${pct}% • ${formatMinutes((doc.words || 0) * (1 - pct / 100) / 200)} restantes`);
     const bar = document.createElement('div'); bar.className = 'lib-bar';
     bar.append(Object.assign(document.createElement('div'), { style: `width:${pct}%` }));
     open.append(name, meta, bar);
@@ -2609,9 +2644,26 @@ ${text}
       return;
     }
     lib.renderAt = Date.now();
-    lib.list.replaceChildren(...lib.docs.map(d => libItem(d, true)));
-    lib.bookList.replaceChildren(...lib.docs.map(d => libItem(d, false)));
-    if (!lib.docs.length) lib.bookList.append(Object.assign(document.createElement('li'), { className: 'hint', textContent: 'Nenhum arquivo na lista ainda.' }));
+    lib.meta.open ||= {};
+    const nodes = [];
+    for (const col of libCols()) {
+      const open = !!lib.meta.open[col];
+      const g = document.createElement('li'); g.className = 'lib-group' + (open ? ' open' : '');
+      g.append(libGroupHead(col, open));
+      if (open) {
+        const sub = document.createElement('ol'); sub.className = 'lib-sub';
+        const docs = lib.docs.filter(d => colOf(d) === col);
+        docs.forEach(d => sub.append(libItem(d, true)));
+        if (!docs.length) sub.append(Object.assign(document.createElement('li'), { className: 'hint', textContent: 'Pasta vazia: use ＋ Arquivos ou 📁 Pasta com ela aberta.' }));
+        g.append(sub);
+      }
+      nodes.push(g);
+    }
+    $('libDest').textContent = lib.docs.length || (lib.meta.cols || []).length ? `Novos arquivos entram em: ${lib.meta.col || COL_DEFAULT}` : '';
+    lib.list.replaceChildren(...nodes);
+    const bookDocs = lib.docs.filter(d => colOf(d) === colOf(libDoc(lib.activeId) || { col: lib.meta.col }));
+    lib.bookList.replaceChildren(...bookDocs.map(d => libItem(d, false)));
+    if (!bookDocs.length) lib.bookList.append(Object.assign(document.createElement('li'), { className: 'hint', textContent: 'Nenhum arquivo nesta matéria ainda.' }));
     lib.empty.hidden = lib.docs.length > 0;
     lib.badge.textContent = lib.docs.length ? String(lib.docs.length) : '';
   }
@@ -2634,7 +2686,7 @@ ${text}
     if (!lib.activeId || lib.blocksRef !== state.blocks) return false;
     const i = lib.docs.findIndex(d => d.id === lib.activeId);
     lib.meta.done[lib.activeId] = true; lib.meta.pos[lib.activeId] = 0; libSaveMeta(true);
-    const next = lib.docs[i + 1];
+    const next = lib.docs.slice(i + 1).find(d => colOf(d) === colOf(lib.docs[i]));
     if (!lib.auto.checked || !next) { libRender(true); return false; }
     const token = state.session;
     status(`“${lib.docs[i].name}” concluído. Abrindo “${next.name}”…`);
@@ -2645,7 +2697,7 @@ ${text}
   // No livro, avançar além da última página oferece o próximo arquivo.
   hooks.edgeNext = () => {
     const i = lib.docs.findIndex(d => d.id === lib.activeId);
-    const next = i >= 0 ? lib.docs[i + 1] : null;
+    const next = i >= 0 ? lib.docs.slice(i + 1).find(d => colOf(d) === colOf(lib.docs[i])) : null;
     if (!next) return false;
     if (Date.now() - lib.edgeAt < 3500) { lib.edgeAt = 0; libSwitch(next.id, { autoplay: state.mode === 'playing' }); return true; }
     lib.edgeAt = Date.now();
@@ -3472,7 +3524,7 @@ ${t.text}
     card.append(el('div', { class: 'q-actions' }, play));
     $('podOut').replaceChildren(card);
     // Entra na lista de arquivos: guarda a posição e permite ouvir no modo livro.
-    const doc = libAdd(title, { text, pdfPages: null, ignored: [] });
+    const doc = libAdd(title, { text, pdfPages: null, ignored: [] }, libDoc(lib.activeId) ? colOf(libDoc(lib.activeId)) : undefined);
     play.addEventListener('click', () => libSwitch(doc.id, { autoplay: true }));
     prStatus(`Podcast criado e salvo na lista de arquivos como “${title}”.`);
   }
@@ -3506,7 +3558,7 @@ ${t.text}
     const before = lib.docs.length;
     let first = null;
     for (const d of editalDocs()) {
-      const doc = lib.docs.find(x => x.name === d.name) || libAdd(d.name, { text: d.text, pdfPages: null, ignored: [] });
+      const doc = lib.docs.find(x => x.name === d.name) || libAdd(d.name, { text: d.text, pdfPages: null, ignored: [] }, 'TCE-SP › Conteúdo do edital');
       first = first || doc;
     }
     const added = lib.docs.length - before;
@@ -3569,6 +3621,175 @@ ${t.text}
   }
   hooks.discScore = nota => { const list = discScores(); list.push({ nota, em: Date.now() }); saveSetting('disc-scores', JSON.stringify(list.slice(-100))); discScores(); };
   discScores(); discKeywords();
+
+  // ===================== Biblioteca por concurso / matéria (pastas) =====================
+  function libCols() {
+    const cols = [...(lib.meta.cols || [])];
+    for (const d of lib.docs) if (!cols.includes(colOf(d))) cols.push(colOf(d));
+    return cols;
+  }
+  function libGroupHead(col, open) {
+    const docs = lib.docs.filter(d => colOf(d) === col);
+    const pending = docs.filter(d => d.pending).length;
+    const done = docs.filter(d => lib.meta.done[d.id]).length;
+    const head = document.createElement('div'); head.className = 'lib-ghead';
+    const btn = document.createElement('button'); btn.type = 'button'; btn.className = 'lib-gbtn';
+    btn.setAttribute('aria-expanded', String(open));
+    const title = document.createElement('strong');
+    title.append(Object.assign(document.createElement('span'), { className: 'lib-caret', textContent: '▸' }), ` 📁 ${col}`);
+    const meta = document.createElement('span'); meta.className = 'lib-meta';
+    meta.textContent = `${docs.length} ${docs.length === 1 ? 'arquivo' : 'arquivos'}`
+      + (pending ? ` • ⏳ ${lib.preparingCol === col ? `preparando (${docs.length - pending}/${docs.length})` : `${pending} a preparar`}` : '')
+      + (done ? ` • ✓ ${done} concluído${done > 1 ? 's' : ''}` : '');
+    btn.append(title, meta);
+    btn.addEventListener('click', () => libToggleCol(col));
+    head.append(btn);
+    const del = document.createElement('button'); del.type = 'button'; del.className = 'lib-gdel'; del.textContent = '✕';
+    del.title = `Remover a pasta “${col}” e seus arquivos`; del.setAttribute('aria-label', del.title);
+    del.addEventListener('click', () => {
+      if (!del.classList.contains('confirm')) { del.classList.add('confirm'); del.textContent = 'Remover pasta?'; setTimeout(() => { del.classList.remove('confirm'); del.textContent = '✕'; }, 3000); return; }
+      for (const d of lib.docs.filter(x => colOf(x) === col)) libRemoveDoc(d.id);
+      lib.meta.cols = (lib.meta.cols || []).filter(c => c !== col); delete lib.meta.open[col];
+      if (lib.meta.col === col) lib.meta.col = '';
+      libSaveMeta(true); libRender(true);
+    });
+    head.append(del);
+    return head;
+  }
+  // Tocar na pasta abre/recolhe; ao abrir, os arquivos dela começam a ser preparados.
+  function libToggleCol(col) {
+    lib.meta.open ||= {};
+    const open = !lib.meta.open[col];
+    lib.meta.open[col] = open;
+    if (open) lib.meta.col = col;
+    libSaveMeta(true); libRender(true);
+    if (open) prepareCollection(col);
+  }
+  function libSelectCol(col) { lib.meta.col = col; lib.meta.open ||= {}; if (col) lib.meta.open[col] = true; libSaveMeta(true); libRender(true); }
+  function libRenderCols() {}
+
+  // Guarda os arquivos originais (rápido); o texto é extraído quando a pasta é aberta.
+  const isStudyFile = f => /\.(pdf|txt|md|markdown)$/i.test(f.name) || f.type === 'application/pdf' || (f.type || '').startsWith('text/');
+  async function stashFiles(files) {
+    const ok = files.filter(isStudyFile), skipped = files.length - ok.length;
+    if (!ok.length) { status('Nenhum PDF, TXT ou Markdown encontrado na seleção.', true); return; }
+    setBusy(true);
+    const cols = new Set();
+    try {
+      for (let i = 0; i < ok.length; i++) {
+        const f = ok[i];
+        status(`Guardando ${i + 1} de ${ok.length}: ${f.name}…`);
+        const parts = (f.__path || f.webkitRelativePath || '').split('/').filter(Boolean);
+        const col = parts.length > 1 ? parts.slice(0, -1).join(' › ') : (lib.meta.col || COL_DEFAULT);
+        if (lib.docs.some(d => d.name === f.name && colOf(d) === col)) continue;
+        const doc = {
+          id: 'd' + Date.now().toString(36) + Math.random().toString(36).slice(2, 7), name: f.name,
+          kind: /\.pdf$/i.test(f.name) || f.type === 'application/pdf' ? 'PDF' : /\.(md|markdown)$/i.test(f.name) ? 'MD' : 'TXT',
+          text: '', total: 0, words: 0, added: Date.now(), images: [], col, pending: true, size: f.size
+        };
+        const saved = await libDb.putFile({ id: doc.id, blob: f, type: f.type });
+        if (!saved) throw new Error('sem espaço no navegador para guardar os arquivos');
+        lib.docs.push(doc); libDb.put(doc); cols.add(col);
+      }
+    } catch (error) { status('Erro ao guardar: ' + error.message, true); }
+    finally { setBusy(false); }
+    try { navigator.storage?.persist?.(); } catch (_) {}
+    lib.meta.cols = libCols();
+    libSaveMeta(true); libRender(true);
+    const n = [...cols];
+    status(n.length ? `${ok.length} ${ok.length === 1 ? 'arquivo guardado' : 'arquivos guardados'} em ${n.length} ${n.length === 1 ? 'pasta' : 'pastas'} (${n.slice(0, 3).join(', ')}${n.length > 3 ? '…' : ''}). Abra uma pasta na 📚 Biblioteca para prepará-la.${skipped ? ` ${skipped} arquivo(s) ignorado(s) por não serem PDF/TXT.` : ''}` : 'Esses arquivos já estavam na biblioteca.');
+    libDrawer(true);
+  }
+  async function prepareDoc(doc) {
+    if (!doc.pending) return true;
+    const rec = await libDb.getFile(doc.id);
+    if (!rec?.blob) { doc.error = 'arquivo original não encontrado; adicione de novo'; libRender(true); return false; }
+    lib.preparingId = doc.id; libRender(true);
+    try {
+      const file = rec.blob instanceof File ? rec.blob : new File([rec.blob], doc.name, { type: rec.type || '' });
+      const result = await readFile(file, state.importJob);
+      if (!result) return false;
+      if (!result.text.trim()) throw new Error('sem texto legível (PDF escaneado precisa de OCR)');
+      Object.assign(doc, { text: result.text, words: countWords(result.text), images: (result.images || []).map(im => im.id), pending: false, error: '' });
+      for (const im of result.images || []) { rememberImage(im); libDb.putImage({ id: im.id, docId: doc.id, blob: im.blob, w: im.w, h: im.h }); }
+      doc.total = segmentText(result.text).length;
+      if (result.pdfPages) lib.pdf.set(doc.id, { pages: result.pdfPages, ignored: result.ignored });
+      libDb.put(doc); libDb.delFile(doc.id);
+      return true;
+    } catch (error) {
+      doc.error = error.message || 'não foi possível ler'; libDb.put(doc);
+      return false;
+    } finally { lib.preparingId = null; libRender(true); }
+  }
+  async function prepareCollection(col) {
+    if (lib.preparingCol) { lib.queueCols = [...new Set([...(lib.queueCols || []), col])]; return; }
+    const todo = lib.docs.filter(d => colOf(d) === col && d.pending && !d.error);
+    if (!todo.length) return;
+    lib.preparingCol = col;
+    let opened = !!lib.activeId && state.mode === 'playing';
+    try {
+      for (let i = 0; i < todo.length; i++) {
+        status(`Preparando “${col}”: ${i + 1} de ${todo.length} • ${todo[i].name}`);
+        const ok = await prepareDoc(todo[i]);
+        if (ok && !opened && !lib.activeId) { opened = true; await libSwitch(todo[i].id, { quiet: true }); }
+      }
+      const failed = todo.filter(d => d.pending).length;
+      status(`Pasta “${col}” pronta: ${todo.length - failed} de ${todo.length} arquivos disponíveis.${failed ? ' Alguns não puderam ser lidos (veja ⚠ na lista).' : ''}`, !!failed);
+    } finally {
+      lib.preparingCol = null; libRender(true);
+      const next = (lib.queueCols || []).shift();
+      if (next) prepareCollection(next);
+    }
+  }
+  // Seleção de pasta (computador) e arrastar uma pasta para a página.
+  const folderInput = $('folderInput');
+  const pickFolder = () => {
+    if (!('webkitdirectory' in folderInput)) { status('Este navegador não permite escolher pastas: selecione vários arquivos de uma vez.', true); els.fileInput.click(); return; }
+    folderInput.click();
+  };
+  folderInput.addEventListener('change', e => { const f = [...(e.target.files || [])]; e.target.value = ''; if (f.length) stashFiles(f); });
+  $('libFolder').addEventListener('click', pickFolder);
+  $('btnFolder').addEventListener('click', pickFolder);
+  async function filesFromEntries(entries) {
+    const out = [];
+    const walk = async (entry, path) => {
+      if (entry.isFile) {
+        const f = await new Promise((res, rej) => entry.file(res, rej)).catch(() => null);
+        if (f) { try { f.__path = path + f.name; } catch (_) {} out.push(f); }
+      } else if (entry.isDirectory) {
+        const reader = entry.createReader();
+        for (;;) {
+          const batch = await new Promise((res, rej) => reader.readEntries(res, rej)).catch(() => []);
+          if (!batch.length) break;
+          for (const e of batch) await walk(e, path + entry.name + '/');
+        }
+      }
+    };
+    for (const e of entries) await walk(e, '');
+    return out;
+  }
+  els.dropZone.addEventListener('drop', async event => {
+    const entries = [...(event.dataTransfer?.items || [])].map(it => it.webkitGetAsEntry?.()).filter(Boolean);
+    if (entries.some(e => e.isDirectory)) {
+      event.stopImmediatePropagation();
+      const files = await filesFromEntries(entries);
+      if (files.length) stashFiles(files);
+    }
+  }, true);
+  // Nova pasta/matéria vazia, que passa a receber os próximos arquivos.
+  function newCol() {
+    const name = $('libNewCol').value.trim().replace(/\s*[\/>]\s*/g, ' › ');
+    if (!name) { $('libNewCol').focus(); return; }
+    lib.meta.cols = [...new Set([...(lib.meta.cols || []), name])];
+    $('libNewCol').value = '';
+    libSelectCol(name);
+    status(`Pasta “${name}” criada. Os próximos arquivos entram nela.`);
+  }
+  $('libNewColBtn').addEventListener('click', newCol);
+  $('libNewCol').addEventListener('keydown', e => { if (e.key === 'Enter') { e.preventDefault(); newCol(); } });
+  // Ao abrir um arquivo, a pasta dele fica aberta e passa a ser o destino dos novos arquivos.
+  const prevLibHook2 = hooks.lib;
+  hooks.lib = index => { prevLibHook2?.(index); const d = libDoc(lib.activeId); if (d && lib.meta.col !== colOf(d)) { lib.meta.col = colOf(d); (lib.meta.open ||= {})[colOf(d)] = true; } };
 
   progress(); controls();
   if (!hasSpeech) status('Este navegador não oferece síntese de voz; tente Chrome ou Edge atualizado.', true);
