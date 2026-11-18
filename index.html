@@ -16,7 +16,7 @@
   <meta name="mobile-web-app-capable" content="yes">
   <meta name="apple-mobile-web-app-title" content="Leitor Ativo">
   <meta name="apple-mobile-web-app-status-bar-style" content="default">
-  <title>Leitor de Estudo Ativo • Versão 5.6</title>
+  <title>Leitor de Estudo Ativo • Versão 5.7</title>
   <!-- PDF.js (módulo moderno) é carregado somente ao abrir PDFs. Biblioteca e worker usam a mesma versão. -->
   <style>
     :root {
@@ -349,7 +349,7 @@
 <main>
   <header class="header">
     <div>
-      <div class="eyebrow">Estudo com áudio • v5.6</div>
+      <div class="eyebrow">Estudo com áudio • v5.7</div>
       <h1>Leitor de Estudo Ativo</h1>
       <p class="subtitle">Ouça, acompanhe a frase em destaque e retome de onde quiser.</p>
     </div>
@@ -3581,7 +3581,8 @@ ${t.text}
     if (!data) return;
     const chapters = (data.capitulos || []).filter(c => c?.narracao);
     if (!chapters.length) { prStatus('O roteiro veio vazio. Tente de novo.', true); return; }
-    const title = '🎧 ' + (data.titulo || 'Podcast') + ' • ' + docName();
+    const srcId = lib.activeId;
+    const title = ('🎧 ' + (data.titulo || 'Podcast')).slice(0, 90);
     const text = chapters.map(c => `## ${c.titulo || 'Capítulo'}\n\n${c.narracao}`).join('\n\n');
     const words = (text.match(/\S+/g) || []).length;
     const card = el('div', { class: 'card' }, el('span', { class: 'tag', text: `Podcast • ~${Math.max(1, Math.round(words / 160))} min` }), el('h3', { text: data.titulo || 'Podcast' }));
@@ -3591,8 +3592,9 @@ ${t.text}
     $('podOut').replaceChildren(card);
     // Entra na lista de arquivos: guarda a posição e permite ouvir no modo livro.
     const doc = libAdd(title, { text, pdfPages: null, ignored: [] }, libDoc(lib.activeId) ? colOf(libDoc(lib.activeId)) : undefined);
-    play.addEventListener('click', () => libSwitch(doc.id, { autoplay: true }));
-    prStatus(`Podcast criado e salvo na lista de arquivos como “${title}”.`);
+    play.addEventListener('click', async () => { await libSwitch(doc.id, { autoplay: true }); els.readerView.closest('section')?.scrollIntoView({ behavior: 'smooth', block: 'start' }); });
+    prStatus(`Podcast criado e salvo na biblioteca como “${title}”.`);
+    hooks.podCreated?.(srcId, doc);
     return doc;
   }
   $('podGen').addEventListener('click', podGenerate);
@@ -4216,6 +4218,21 @@ ${refText ? `\nMATERIAL DE REFERÊNCIA:\n"""\n${refText}\n"""` : ''}`, `Preparan
     edStatus(`Material salvo na biblioteca (${col}). Ouça, leia como livro ou gere questões.`);
     return doc;
   }
+  // Abre um arquivo do cronograma e rola até o leitor (que fica mais abaixo na página).
+  async function edOpenDoc(id, play = false) {
+    await libSwitch(id, { quiet: true, autoplay: play });
+    const panel = els.readerView.closest('section');
+    panel?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    status(`“${libDoc(id)?.name || 'Material'}” aberto${play ? ' e tocando' : ''}. Use ▶ Reproduzir para ouvir ou 📖 Ler como livro.`);
+    panel?.animate?.([{ boxShadow: '0 0 0 3px var(--focus)' }, { boxShadow: '0 0 0 0 transparent' }], { duration: 1200 });
+  }
+  // Podcast criado a partir do material de um bloco fica ligado a esse bloco.
+  hooks.podCreated = (srcId, pod) => {
+    const plan = ed.data.plan; if (!plan || !srcId) return;
+    let hit = false;
+    for (const blocks of Object.values(plan.days)) for (const b of blocks) if (b.docId === srcId) { b.podId = pod.id; hit = true; }
+    if (hit) { edSave(); edRenderToday(); }
+  };
   function edRenderToday() {
     const plan = ed.data.plan, box = $('edToday');
     if (!plan) {
@@ -4253,7 +4270,7 @@ ${refText ? `\nMATERIAL DE REFERÊNCIA:\n"""\n${refText}\n"""` : ''}`, `Preparan
       const acts = el('div', { class: 'q-actions' });
       const studyable = !['revisão da semana', 'simulado', 'revisão final'].includes(b.tipo);
       if (studyable) {
-        if (b.docId && libDoc(b.docId)) acts.append(el('button', { type: 'button', class: 'primary', text: '📖 Abrir material', onclick: () => libSwitch(b.docId) }));
+        if (b.docId && libDoc(b.docId)) acts.append(el('button', { type: 'button', class: 'primary', text: '📖 Abrir material', onclick: () => edOpenDoc(b.docId) }));
         else acts.append(el('button', { type: 'button', class: 'primary', text: '✨ Gerar material do dia', onclick: () => edMaterial(b) }));
         acts.append(el('button', { type: 'button', text: '🔎 Na minha biblioteca', onclick: () => {
           const found = libMatches(b.materia + ' ' + b.topicos.join(' '));
@@ -4271,9 +4288,9 @@ ${refText ? `\nMATERIAL DE REFERÊNCIA:\n"""\n${refText}\n"""` : ''}`, `Preparan
           document.querySelector('#practice [data-tab="pod"]')?.click();
           $('practice').scrollIntoView({ behavior: 'smooth', block: 'start' });
           const pod = await podGenerate();
-          if (pod) { b.podId = pod.id; edSave(); libSwitch(pod.id, { autoplay: true }); edRenderToday(); }
+          if (pod) { b.podId = pod.id; edSave(); edRenderToday(); edOpenDoc(pod.id, true); }
         } }));
-        if (b.podId && libDoc(b.podId)) acts.append(el('button', { type: 'button', text: '▶ Ouvir podcast', onclick: () => libSwitch(b.podId, { autoplay: true }) }));
+        if (b.podId && libDoc(b.podId)) acts.append(el('button', { type: 'button', text: '▶ Ouvir podcast', onclick: () => edOpenDoc(b.podId, true) }));
         acts.append(el('button', { type: 'button', text: '❓ Questões I-L-E', onclick: async () => {
           if (b.docId && libDoc(b.docId) && lib.activeId !== b.docId) await libSwitch(b.docId, { quiet: true });
           if (!state.blocks.length) { edStatus('Abra ou gere um material primeiro.', true); return; }
