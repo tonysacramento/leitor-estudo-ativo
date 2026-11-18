@@ -16,7 +16,7 @@
   <meta name="mobile-web-app-capable" content="yes">
   <meta name="apple-mobile-web-app-title" content="Leitor Ativo">
   <meta name="apple-mobile-web-app-status-bar-style" content="default">
-  <title>Leitor de Estudo Ativo • Versão 6.0</title>
+  <title>Leitor de Estudo Ativo • Versão 6.1</title>
   <!-- PDF.js (módulo moderno) é carregado somente ao abrir PDFs. Biblioteca e worker usam a mesma versão. -->
   <style>
     :root {
@@ -129,6 +129,23 @@
     .ex-gap { display: inline-block; margin: 0 2px; }
     .ex-text { line-height: 2.1; }
     @media (max-width: 740px) { .perfil-opts { grid-template-columns: 1fr; } .flow { flex-direction: column; } .flow-step { flex: 0 0 auto; } .flow-arrow { transform: rotate(90deg); } }
+    .pomo { position: fixed; z-index: 950; right: 14px; bottom: calc(env(safe-area-inset-bottom, 0px) + 14px); width: min(340px, calc(100vw - 28px)); background: var(--surface); border: 2px solid var(--primary); border-radius: 16px; box-shadow: var(--shadow); padding: 10px 12px; }
+    .pomo[hidden] { display: none; }
+    .pomo.pausa { border-color: #1f8a4c; }
+    .pomo-main { display: flex; align-items: baseline; gap: 10px; justify-content: space-between; }
+    .pomo-phase { font-weight: 800; font-size: .9rem; }
+    .pomo-time { font-size: 1.9rem; font-variant-numeric: tabular-nums; letter-spacing: .02em; }
+    .pomo-cycle { color: var(--muted); font-size: .8rem; }
+    .pomo-ctl { display: flex; gap: 6px; margin-top: 6px; }
+    .pomo-ctl button { flex: 1; padding: 6px 0; }
+    .pomo-cfg { display: grid; gap: 6px; margin-top: 8px; font-size: .86rem; }
+    .pomo-cfg select { padding: 4px 6px; border-radius: 7px; border: 1px solid var(--border); background: var(--surface); color: var(--text); font: inherit; }
+    .alert-banner { position: fixed; z-index: 1300; left: 50%; top: calc(env(safe-area-inset-top, 0px) + 14px); transform: translateX(-50%); width: min(520px, calc(100vw - 24px)); background: var(--primary); color: var(--on-primary); border-radius: 14px; padding: 14px 16px; box-shadow: 0 16px 40px rgba(0,0,0,.25); font-weight: 700; display: flex; gap: 10px; align-items: center; }
+    .alert-banner[hidden] { display: none; }
+    .alert-banner span { flex: 1; }
+    .alert-banner button { background: rgba(255,255,255,.18); color: inherit; border-color: transparent; }
+    .rem-panel a.btn-link { display: inline-block; text-decoration: none; border: 1px solid var(--border); border-radius: 9px; padding: 8px 12px; font-weight: 650; color: var(--text); background: var(--surface); }
+    .rem-panel input[type=time] { padding: 8px 10px; border: 1px solid var(--border); border-radius: 9px; background: var(--surface); color: var(--text); font: inherit; }
     .pr-tabs { display: flex; gap: 6px; flex-wrap: wrap; margin-bottom: 12px; }
     .pr-tabs button[aria-selected="true"] { background: var(--primary); color: var(--on-primary); border-color: var(--primary); }
     .disc-case { min-height: 120px; }
@@ -151,7 +168,7 @@
     .ed-setup > summary { cursor: pointer; font-weight: 700; }
     .ed-step { margin-top: 14px; }
     .ed-step select { width: auto; flex: 1; min-width: 180px; }
-    .ed-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 10px; margin-top: 8px; }
+    .ed-grid { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 10px; margin-top: 8px; }
     .ed-grid input, .ed-grid select { width: 100%; padding: 9px 10px; border: 1px solid var(--border); border-radius: 9px; background: var(--surface); color: var(--text); font: inherit; }
     .ed-days { display: flex; flex-wrap: wrap; gap: 6px 12px; }
     .ed-days label { font-weight: 500; display: inline-flex; gap: 5px; align-items: center; }
@@ -384,14 +401,15 @@
 <main>
   <header class="header">
     <div>
-      <div class="eyebrow">Estudo com áudio • v6.0</div>
+      <div class="eyebrow">Estudo com áudio • v6.1</div>
       <h1>Leitor de Estudo Ativo</h1>
       <p class="subtitle">Ouça, acompanhe a frase em destaque e retome de onde quiser.</p>
     </div>
     <div class="button-group">
       <button id="btnInstall" type="button" hidden>⬇ Instalar app</button>
       <button id="btnLib" type="button" aria-label="Abrir a lista de arquivos">📚 Arquivos<span class="lib-badge" id="libCount"></span></button>
-    <button id="btnPerfil" type="button" title="Seu perfil de estudo">👤 Perfil</button>
+    <button id="btnPomo" type="button" title="Pomodoro" aria-label="Pomodoro">🍅</button>
+      <button id="btnPerfil" type="button" title="Seu perfil de estudo">👤 Perfil</button>
       <button id="btnTheme" type="button" aria-label="Alternar modo claro e escuro" title="Alternar tema">◐ Tema</button>
     </div>
   </header>
@@ -428,6 +446,7 @@
         <div class="ed-grid">
           <div class="field"><label for="edStart">Início</label><input type="date" id="edStart"></div>
           <div class="field"><label for="edExam">Data da prova</label><input type="date" id="edExam"></div>
+          <div class="field"><label for="edTime">Horário de estudo</label><input type="time" id="edTime" value="19:00"></div>
           <div class="field"><label for="edHours">Horas por dia</label><select id="edHours"><option>1</option><option selected>2</option><option>3</option><option>4</option><option>5</option><option>6</option></select></div>
         </div>
         <div class="field" style="margin-top:10px"><span class="label">Dias de estudo</span>
@@ -654,6 +673,29 @@
   </section>
   <p class="privacy">A limpeza automática analisa cabeçalhos e rodapés por repetição e posição; revise a lista de linhas ignoradas em documentos com diagramação incomum. O texto é tratado no seu navegador. PDFs dependem do carregamento da biblioteca PDF.js pela internet; vozes e sua disponibilidade dependem do navegador e do sistema. PDFs digitalizados como imagem exigem OCR, não incluído nesta versão. Resumos, questões, flashcards, correções e podcasts são gerados por IA (Claude ou Google Gemini) a partir do texto da etapa 1; confira sempre com o material original.</p>
 </main>
+<div id="pomo" class="pomo" hidden role="region" aria-label="Pomodoro">
+  <div class="pomo-main">
+    <span class="pomo-phase" id="pomoPhase">🍅 Foco</span>
+    <strong class="pomo-time" id="pomoTime" aria-live="off">25:00</strong>
+    <span class="pomo-cycle" id="pomoCycle">1/4</span>
+  </div>
+  <div class="pomo-ctl">
+    <button type="button" id="pomoPlay" aria-label="Iniciar">▶</button>
+    <button type="button" id="pomoSkip" aria-label="Pular para a próxima fase" title="Pular">⏭</button>
+    <button type="button" id="pomoReset" aria-label="Reiniciar" title="Reiniciar">↺</button>
+    <button type="button" id="pomoCfgBtn" aria-label="Configurar" title="Configurar">⚙</button>
+    <button type="button" id="pomoClose" aria-label="Fechar Pomodoro" title="Fechar">✕</button>
+  </div>
+  <div class="pomo-cfg" id="pomoCfg" hidden>
+    <label>Foco <select id="pomoFocus"><option>15</option><option>20</option><option selected>25</option><option>30</option><option>40</option><option>50</option></select> min</label>
+    <label>Pausa <select id="pomoShort"><option>3</option><option selected>5</option><option>10</option></select> min</label>
+    <label>Pausa longa <select id="pomoLong"><option>10</option><option selected>15</option><option>20</option><option>30</option></select> min</label>
+    <label>Pausa longa a cada <select id="pomoEvery"><option>2</option><option>3</option><option selected>4</option></select> focos</label>
+    <label class="toggle"><input type="checkbox" id="pomoPauseRead" checked> Pausar a leitura no intervalo e retomar na volta</label>
+    <label class="toggle"><input type="checkbox" id="pomoAuto" checked> Começar a próxima fase sozinho</label>
+  </div>
+</div>
+<div id="alertBanner" class="alert-banner" hidden role="alert"></div>
 <div id="imgViewer" class="img-viewer" hidden role="dialog" aria-label="Imagem ampliada">
   <button type="button" id="imgViewerClose" class="img-viewer-close" aria-label="Fechar imagem">✕</button>
   <img id="imgViewerImg" alt="Imagem ampliada do documento">
@@ -4241,37 +4283,52 @@ ${section}
     const mats = d.materias.filter(m => m.topicos.length).map(m => ({ nome: m.nome, grupo: m.grupo, w: (Number(m.questoes) || 5) * (Number(m.peso) || 1) * (m.grupo === 'especificos' ? 1.2 : 1), topics: m.topicos }));
     if (!mats.length) { edStatus('A vaga ainda não tem tópicos: use “🔄 Buscar conteúdo programático no edital” no cartão da vaga.', true); return; }
     const T = mats.reduce((a, m) => a + m.topics.length, 0);
-    // Muitos tópicos: agrupa vários por bloco. Poucos: ganha segunda passada (questões) e revisão.
-    const per = Math.max(1, Math.ceil(T / totalSlots));
+    // Teoria ocupa ~60% do tempo; o resto vira rodadas de questões e revisão dos mesmos tópicos.
+    // Muitos tópicos: agrupa vários por bloco, garantindo que TODOS caibam.
+    const theoryCount = per => mats.reduce((a, m) => a + Math.ceil(m.topics.length / per), 0);
+    let per = Math.max(1, Math.ceil(T / Math.max(1, Math.floor(totalSlots * .6))));
+    while (theoryCount(per) > totalSlots && per < T) per++;
     const units = mats.map(m => {
       const u = [];
       for (let i = 0; i < m.topics.length; i += per) u.push({ materia: m.nome, grupo: m.grupo, topicos: m.topics.slice(i, i + per), tipo: 'teoria' });
-      return { w: m.w, u, cur: 0 };
+      return { w: m.w, u };
     });
-    let base = units.reduce((a, x) => a + x.u.length, 0);
-    for (const pass of ['questões', 'revisão']) {
-      if (base * 2 > totalSlots) break;
-      for (const x of units) x.u.push(...x.u.filter(b => b.tipo === 'teoria').map(b => ({ ...b, tipo: pass })));
-      base = units.reduce((a, x) => a + x.u.length, 0);
-    }
-    // Primeiro a teoria de todos os tópicos, depois a rodada de questões e por fim a de revisão.
-    // Dentro de cada rodada, intercala as matérias por peso (round-robin ponderado).
+    const theory = units.reduce((a, x) => a + x.u.length, 0);
+    // Rodadas extras enquanto couberem inteiras: questões, revisão, e de novo (revisão espaçada).
+    const passes = ['teoria'];
+    for (const pass of ['questões', 'revisão', 'questões', 'revisão']) { if ((passes.length + 1) * theory > totalSlots) break; passes.push(pass); }
+    // Sobrou espaço para uma rodada parcial? Usa questões das matérias de maior peso.
     const queue = [];
-    for (const tipo of ['teoria', 'questões', 'revisão']) {
-      const pool = units.map(x => ({ w: x.w, cur: 0, u: x.u.filter(b => b.tipo === tipo) }));
+    passes.forEach((tipo, round) => {
+      const pool = units.map(x => ({ w: x.w, cur: 0, u: x.u.filter(b => b.tipo === 'teoria').map(b => ({ ...b, tipo, rodada: round + 1 })) }));
       const total = pool.reduce((a, x) => a + (x.u.length ? x.w : 0), 0);
       while (pool.some(x => x.u.length)) {
         let best = null;
         for (const x of pool) { if (!x.u.length) continue; x.cur += x.w; if (!best || x.cur > best.cur) best = x; }
         best.cur -= total; queue.push(best.u.shift());
       }
+    });
+    const spare = totalSlots - queue.length;
+    if (spare > 0) {
+      // Intercala as matérias de maior peso (uma de cada vez), para não concentrar uma só matéria no dia.
+      const lists = [...units].sort((a, b) => b.w - a.w).map(x => [...x.u]);
+      const heavy = [];
+      while (lists.some(l => l.length)) for (const l of lists) if (l.length) heavy.push(l.shift());
+      for (let i = 0; i < spare && i < heavy.length; i++) queue.push({ ...heavy[i], tipo: 'questões', rodada: passes.length + 1 });
     }
-    const plan = { created: Date.now(), vaga: [d.cargo, d.especialidade].filter(Boolean).join(' – '), exam: isoDay(exam), slots, days: {}, done: {} };
+    const plan = { created: Date.now(), vaga: [d.cargo, d.especialidade].filter(Boolean).join(' – '), exam: isoDay(exam), slots, hora: $('edTime').value || '19:00', remindApp: !!ed.data.plan?.remindApp, days: {}, done: {} };
     let q = 0, sd = 0;
     studyDates.forEach((date, i) => {
       if (isReview(i)) { plan.days[date] = [{ tipo: 'revisão da semana', materia: 'Revisão', topicos: ['Revise os assuntos estudados nos últimos 6 dias', 'Faça questões dos tópicos em que errou mais', 'Revise seus flashcards'] }]; return; }
       plan.days[date] = [];
-      for (let s = 0; s < slots && q < queue.length; s++) plan.days[date].push(queue[q++]);
+      for (let s = 0; s < slots && q < queue.length; s++) {
+        // Evita a mesma matéria duas vezes no dia: puxa o próximo bloco de outra matéria, se houver por perto.
+        const used = new Set(plan.days[date].map(b => b.materia));
+        let k = q;
+        while (k < Math.min(queue.length, q + 12) && used.has(queue[k].materia)) k++;
+        if (k < queue.length && k < q + 12 && k !== q) { const [x] = queue.splice(k, 1); queue.splice(q, 0, x); }
+        plan.days[date].push(queue[q++]);
+      }
       if (!plan.days[date].length) plan.days[date] = [{ tipo: 'questões', materia: 'Questões gerais', topicos: ['Questões de provas anteriores da banca'] }];
       sd++;
     });
@@ -4359,7 +4416,8 @@ ${refText ? `\nMATERIAL DE REFERÊNCIA:\n"""\n${refText}\n"""` : ''}`, `Preparan
     const p = ed.data.reviewPrefs ||= { days: 7, formato: 'resumo', modo: 'ouvir', sel: null };
     if (daysBack !== undefined) p.days = daysBack;
     const box = $('edReview'); if (!box) return;
-    if (box.firstChild && daysBack === undefined) { box.replaceChildren(); return; } // tocar de novo recolhe
+    if (box.firstChild && daysBack === undefined && box.dataset.open === 'rev') { box.replaceChildren(); box.dataset.open = ''; return; } // tocar de novo recolhe
+    box.dataset.open = 'rev';
     const draw = () => {
       const items = edStudied(p.days);
       const byMat = new Map();
@@ -4547,7 +4605,7 @@ ${material}
       card.append(box2);
     });
     card.append(el('div', { id: 'edReview' }));
-    card.append(el('div', { class: 'q-actions' }, el('button', { type: 'button', text: '🔁 Revisão', onclick: () => edOpenReview() }), el('button', { type: 'button', text: '⚙ Edital, vaga e cronograma', onclick: () => { $('edSetup').open = true; $('edSetup').scrollIntoView({ behavior: 'smooth', block: 'start' }); } })));
+    card.append(el('div', { class: 'q-actions' }, el('button', { type: 'button', class: 'primary', text: '🍅 Começar com Pomodoro', onclick: () => hooks.pomoStart?.() }), el('button', { type: 'button', text: '⏰ Lembrete', onclick: () => edReminderPanel() }), el('button', { type: 'button', text: '🔁 Revisão', onclick: () => { $('edReview').dataset.open = ''; edOpenReview(); } }), el('button', { type: 'button', text: '⚙ Edital, vaga e cronograma', onclick: () => { $('edSetup').open = true; $('edSetup').scrollIntoView({ behavior: 'smooth', block: 'start' }); } })));
     box.replaceChildren(card);
   }
   edRenderVagas(); edRenderDetail(); edRenderToday();
@@ -4747,6 +4805,176 @@ ${t.text}
   const prevPrepared2 = hooks.prepared;
   hooks.prepared = () => { prevPrepared2?.(); mapLoad(); exLoad(); };
   mapLoad(); exLoad();
+
+  // ===================== Avisos: som, vibração, notificação e faixa na tela =====================
+  let audioCtx = null;
+  function unlockAudio() { try { audioCtx ||= new (window.AudioContext || window.webkitAudioContext)(); if (audioCtx.state === 'suspended') audioCtx.resume(); } catch (_) {} }
+  document.addEventListener('pointerdown', unlockAudio, { once: true });
+  function chime(kind = 'focus') {
+    try {
+      unlockAudio(); if (!audioCtx) return;
+      const notes = kind === 'break' ? [659, 523, 392] : kind === 'alarm' ? [523, 659, 784, 1047, 784, 1047] : [392, 523, 659];
+      notes.forEach((f, i) => {
+        const o = audioCtx.createOscillator(), g = audioCtx.createGain(), t = audioCtx.currentTime + i * .22;
+        o.type = 'sine'; o.frequency.value = f; g.gain.setValueAtTime(0, t); g.gain.linearRampToValueAtTime(.25, t + .02); g.gain.exponentialRampToValueAtTime(.001, t + .35);
+        o.connect(g).connect(audioCtx.destination); o.start(t); o.stop(t + .4);
+      });
+    } catch (_) {}
+  }
+  const canNotify = () => 'Notification' in window && Notification.permission === 'granted';
+  async function askNotify() {
+    try { if ('Notification' in window && Notification.permission === 'default') await Notification.requestPermission(); } catch (_) {}
+    return canNotify();
+  }
+  async function notify(title, body, kind) {
+    chime(kind);
+    try { navigator.vibrate?.(kind === 'alarm' ? [300, 150, 300, 150, 300] : [200, 100, 200]); } catch (_) {}
+    const banner = $('alertBanner');
+    banner.replaceChildren(el('span', { text: `${title} — ${body}` }), el('button', { type: 'button', text: 'OK', onclick: () => { banner.hidden = true; } }));
+    banner.hidden = false; clearTimeout(notify.t); notify.t = setTimeout(() => { banner.hidden = true; }, 15000);
+    if (bk.open) bkToast(`${title} — ${body}`, 5000);
+    if (canNotify()) {
+      try {
+        const reg = await navigator.serviceWorker?.getRegistration?.();
+        if (reg?.showNotification) reg.showNotification(title, { body, tag: 'leitor-' + kind, renotify: true, icon: 'icons/icon-192.png' });
+        else new Notification(title, { body, tag: 'leitor-' + kind });
+      } catch (_) {}
+    }
+  }
+
+  // ===================== 🍅 Pomodoro =====================
+  const pomo = (() => { try { return JSON.parse(loadSetting('pomo', '{}')) || {}; } catch (_) { return {}; } })();
+  const pomoCfg = () => ({ focus: Number($('pomoFocus').value), short: Number($('pomoShort').value), long: Number($('pomoLong').value), every: Number($('pomoEvery').value) });
+  for (const [k, id] of [['focus', 'pomoFocus'], ['short', 'pomoShort'], ['long', 'pomoLong'], ['every', 'pomoEvery']]) if (pomo.cfg?.[k]) $(id).value = String(pomo.cfg[k]);
+  if (pomo.cfg) { $('pomoPauseRead').checked = pomo.cfg.pauseRead !== false; $('pomoAuto').checked = pomo.cfg.auto !== false; }
+  pomo.phase ||= 'focus'; pomo.cycle ||= 1;
+  const PH = { focus: '🍅 Foco', short: '☕ Pausa', long: '🌿 Pausa longa' };
+  const phaseMin = ph => ({ focus: pomoCfg().focus, short: pomoCfg().short, long: pomoCfg().long })[ph];
+  function pomoSave() { pomo.cfg = { ...pomoCfg(), pauseRead: $('pomoPauseRead').checked, auto: $('pomoAuto').checked }; saveSetting('pomo', JSON.stringify(pomo)); }
+  function pomoLeft() { return pomo.running ? Math.max(0, pomo.endAt - Date.now()) : (pomo.left ?? phaseMin(pomo.phase) * 60000); }
+  function pomoDraw() {
+    const ms = pomoLeft(), m = Math.floor(ms / 60000), s = Math.floor(ms % 60000 / 1000);
+    $('pomoTime').textContent = `${String(m).padStart(2, '0')}:${String(s).padStart(2, '0')}`;
+    $('pomoPhase').textContent = PH[pomo.phase];
+    $('pomoCycle').textContent = `foco ${pomo.cycle}/${pomoCfg().every}`;
+    $('pomoPlay').textContent = pomo.running ? 'Ⅱ' : '▶';
+    $('pomoPlay').setAttribute('aria-label', pomo.running ? 'Pausar' : 'Iniciar');
+    $('pomo').classList.toggle('pausa', pomo.phase !== 'focus');
+    $('btnPomo').textContent = pomo.running ? `🍅 ${$('pomoTime').textContent}` : '🍅';
+  }
+  function pomoStart() {
+    unlockAudio(); askNotify();
+    pomo.endAt = Date.now() + pomoLeft(); pomo.running = true; delete pomo.left; pomoSave(); pomoDraw();
+  }
+  function pomoPause() { if (!pomo.running) return; pomo.left = pomoLeft(); pomo.running = false; pomoSave(); pomoDraw(); }
+  function pomoNext(auto) {
+    const was = pomo.phase;
+    if (was === 'focus') { pomo.phase = pomo.cycle >= pomoCfg().every ? 'long' : 'short'; }
+    else { pomo.phase = 'focus'; pomo.cycle = was === 'long' ? 1 : pomo.cycle + 1; }
+    delete pomo.left; pomo.running = false;
+    if (auto) {
+      if (pomo.phase === 'focus') {
+        notify('Hora de voltar! 🍅', `Foco de ${pomoCfg().focus} min. Bom estudo.`, 'focus');
+        if (pomo.readPaused && state.mode === 'paused') play();
+        pomo.readPaused = false;
+      } else {
+        notify(pomo.phase === 'long' ? 'Pausa longa 🌿' : 'Pausa ☕', `Descanse ${phaseMin(pomo.phase)} min: levante, beba água, olhe para longe.`, 'break');
+        if ($('pomoPauseRead').checked && state.mode === 'playing') { pause(); pomo.readPaused = true; }
+      }
+      if ($('pomoAuto').checked) { pomoStart(); return; }
+    }
+    pomoSave(); pomoDraw();
+  }
+  setInterval(() => {
+    if (pomo.running && Date.now() >= pomo.endAt) pomoNext(true);
+    if (!$('pomo').hidden || pomo.running) pomoDraw();
+  }, 1000);
+  document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'visible' && pomo.running && Date.now() >= pomo.endAt) pomoNext(true); });
+  $('pomoPlay').addEventListener('click', () => (pomo.running ? pomoPause() : pomoStart()));
+  $('pomoSkip').addEventListener('click', () => pomoNext(false));
+  $('pomoReset').addEventListener('click', () => { pomo.phase = 'focus'; pomo.cycle = 1; pomo.running = false; delete pomo.left; pomoSave(); pomoDraw(); });
+  $('pomoCfgBtn').addEventListener('click', () => { $('pomoCfg').hidden = !$('pomoCfg').hidden; });
+  $('pomoCfg').addEventListener('change', () => { if (!pomo.running) delete pomo.left; pomoSave(); pomoDraw(); });
+  $('pomoClose').addEventListener('click', () => { $('pomo').hidden = true; pomo.open = false; pomoSave(); pomoDraw(); });
+  $('btnPomo').addEventListener('click', () => { const p = $('pomo'); p.hidden = !p.hidden; pomo.open = !p.hidden; pomoSave(); pomoDraw(); });
+  $('pomo').hidden = !pomo.open && !pomo.running;
+  pomoDraw();
+  // Abre o Pomodoro já rodando (usado pelo cronograma).
+  hooks.pomoStart = () => { $('pomo').hidden = false; pomo.open = true; if (!pomo.running) { pomo.phase = 'focus'; delete pomo.left; pomoStart(); } };
+
+  // ===================== ⏰ Lembrete para começar a estudar =====================
+  const DOW = ['SU', 'MO', 'TU', 'WE', 'TH', 'FR', 'SA'];
+  function remDays() { const plan = ed.data.plan; if (!plan) return []; return [...new Set(Object.keys(plan.days).map(d => new Date(d + 'T12:00').getDay()))].sort(); }
+  const pad2 = n => String(n).padStart(2, '0');
+  function remParts() {
+    const plan = ed.data.plan, hora = plan.hora || '19:00';
+    const first = Object.keys(plan.days).sort()[0], [h, m] = hora.split(':').map(Number);
+    const start = first.replace(/-/g, '') + `T${pad2(h)}${pad2(m)}00`;
+    const endH = Math.min(23, h + (plan.slots || 2)), end = first.replace(/-/g, '') + `T${pad2(endH)}${pad2(m)}00`;
+    const until = plan.exam.replace(/-/g, '') + 'T235959';
+    const rrule = `RRULE:FREQ=WEEKLY;BYDAY=${remDays().map(d => DOW[d]).join(',')};UNTIL=${until}`;
+    const title = `📚 Estudar – ${plan.vaga}`.slice(0, 120);
+    const details = `Hora de estudar (${plan.slots || 2} h). Abra o Leitor de Estudo Ativo e veja o estudo do dia.`;
+    return { start, end, rrule, title, details };
+  }
+  function googleLink() {
+    const r = remParts();
+    const q = new URLSearchParams({ action: 'TEMPLATE', text: r.title, dates: `${r.start}/${r.end}`, ctz: Intl.DateTimeFormat().resolvedOptions().timeZone || 'America/Sao_Paulo', details: r.details, recur: r.rrule });
+    return 'https://calendar.google.com/calendar/render?' + q.toString();
+  }
+  function icsText() {
+    const r = remParts(), tz = Intl.DateTimeFormat().resolvedOptions().timeZone || 'America/Sao_Paulo';
+    const stamp = new Date().toISOString().replace(/[-:]/g, '').slice(0, 15) + 'Z';
+    return ['BEGIN:VCALENDAR', 'VERSION:2.0', 'PRODID:-//Leitor de Estudo Ativo//PT-BR', 'CALSCALE:GREGORIAN', 'BEGIN:VEVENT',
+      `UID:estudo-${Date.now()}@leitor-estudo-ativo`, `DTSTAMP:${stamp}`, `DTSTART;TZID=${tz}:${r.start}`, `DTEND;TZID=${tz}:${r.end}`, r.rrule,
+      `SUMMARY:${r.title}`, `DESCRIPTION:${r.details}`,
+      'BEGIN:VALARM', 'ACTION:DISPLAY', 'DESCRIPTION:Hora de estudar', 'TRIGGER:-PT10M', 'END:VALARM',
+      'BEGIN:VALARM', 'ACTION:DISPLAY', 'DESCRIPTION:Começar agora', 'TRIGGER:PT0M', 'END:VALARM',
+      'END:VEVENT', 'END:VCALENDAR'].join('\r\n');
+  }
+  // Aviso dentro do app (quando ele está aberto) no horário de estudo dos dias do cronograma.
+  setInterval(() => {
+    const plan = ed.data.plan; if (!plan?.remindApp) return;
+    const now = new Date(), today = isoDay(now);
+    if (!plan.days[today] || plan.lastRemind === today) return;
+    const [h, m] = (plan.hora || '19:00').split(':').map(Number);
+    const mins = now.getHours() * 60 + now.getMinutes() - (h * 60 + m);
+    if (mins >= 0 && mins < 30) {
+      plan.lastRemind = today; edSave();
+      const b = plan.days[today][0];
+      notify('⏰ Hora de estudar!', `${b.materia}${b.topicos?.[0] ? ': ' + b.topicos[0] : ''}`, 'alarm');
+    }
+  }, 30000);
+  function edReminderPanel() {
+    const plan = ed.data.plan; if (!plan) return;
+    const box = $('edReview'); if (!box) return;
+    if (box.dataset.open === 'rem') { box.replaceChildren(); box.dataset.open = ''; return; }
+    box.dataset.open = 'rem';
+    const time = el('input', { type: 'time', value: plan.hora || '19:00', 'aria-label': 'Horário de início dos estudos' });
+    const gLink = el('a', { class: 'btn-link', href: googleLink(), target: '_blank', rel: 'noopener', text: '📅 Adicionar ao Google Agenda' });
+    time.addEventListener('change', () => { plan.hora = time.value || '19:00'; edSave(); gLink.href = googleLink(); });
+    const ics = el('button', { type: 'button', text: '⬇ Baixar para outra agenda (.ics)' });
+    ics.addEventListener('click', async () => {
+      const text = icsText();
+      const a = document.createElement('a'); a.href = URL.createObjectURL(new Blob([text], { type: 'text/calendar' })); a.download = 'lembrete-estudos.ics';
+      document.body.append(a); a.click(); a.remove();
+      edStatus('Arquivo baixado: abra “lembrete-estudos.ics” para adicionar à agenda do celular, do iPhone ou do Outlook.');
+    });
+    const inApp = Object.assign(el('input', { type: 'checkbox' }), { checked: !!plan.remindApp });
+    inApp.addEventListener('change', async () => {
+      plan.remindApp = inApp.checked; edSave();
+      if (inApp.checked) { unlockAudio(); const ok = await askNotify(); edStatus(ok ? 'Aviso no app ligado, com notificação.' : 'Aviso no app ligado (som e faixa na tela). Para notificação, permita notificações deste site.'); }
+    });
+    const dias = remDays().map(d => ['dom', 'seg', 'ter', 'qua', 'qui', 'sex', 'sáb'][d]).join(', ');
+    box.replaceChildren(el('div', { class: 'block rem-panel' },
+      el('h4', { text: '⏰ Lembrete para começar a estudar' }),
+      el('div', { class: 'ex-row' }, el('span', { text: `Horário (${dias}, até a prova):` }), time),
+      el('p', { class: 'hint', text: 'O jeito mais confiável é a agenda do celular: ela toca mesmo com o app fechado e a tela apagada.' }),
+      el('div', { class: 'q-actions' }, gLink, /github\.io$|^localhost$|^127\./.test(location.hostname) ? ics : null),
+      el('label', { class: 'toggle', style: 'margin-top:8px' }, inApp, ' Avisar também aqui no app (com som), quando ele estiver aberto'),
+      el('div', { class: 'q-actions' }, el('button', { type: 'button', text: '🔔 Testar aviso', onclick: () => { unlockAudio(); askNotify().then(() => notify('⏰ Hora de estudar!', 'Este é um teste do lembrete.', 'alarm')); } }))));
+    box.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+  }
 
   progress(); controls();
   if (!hasSpeech) status('Este navegador não oferece síntese de voz; tente Chrome ou Edge atualizado.', true);
