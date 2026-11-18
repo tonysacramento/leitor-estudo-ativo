@@ -16,7 +16,7 @@
   <meta name="mobile-web-app-capable" content="yes">
   <meta name="apple-mobile-web-app-title" content="Leitor Ativo">
   <meta name="apple-mobile-web-app-status-bar-style" content="default">
-  <title>Leitor de Estudo Ativo • Versão 6.1</title>
+  <title>Leitor de Estudo Ativo • Versão 6.2</title>
   <!-- PDF.js (módulo moderno) é carregado somente ao abrir PDFs. Biblioteca e worker usam a mesma versão. -->
   <style>
     :root {
@@ -401,7 +401,7 @@
 <main>
   <header class="header">
     <div>
-      <div class="eyebrow">Estudo com áudio • v6.1</div>
+      <div class="eyebrow">Estudo com áudio • v6.2</div>
       <h1>Leitor de Estudo Ativo</h1>
       <p class="subtitle">Ouça, acompanhe a frase em destaque e retome de onde quiser.</p>
     </div>
@@ -1939,11 +1939,43 @@ ${text}
     const node = $('ileScore');
     if (node) node.textContent = `Respondidas: ${s.answered}/${s.total} • Acertos: ${s.right}${s.answered ? ` (${Math.round(s.right / s.answered * 100)}%)` : ''}`;
   }
+  // ---------- 📌 Caderno de erros: questões erradas voltam como flashcard e na revisão ----------
+  const loadErros = () => { try { return JSON.parse(loadSetting('erros', '[]')) || []; } catch (_) { return []; } };
+  const saveErros = list => saveSetting('erros', JSON.stringify(list.slice(-300)));
+  function erroSave(q, chosen, correct) {
+    const key = normalizeText(q.enunciado || '').slice(0, 160);
+    const list = loadErros().filter(e => normalizeText(e.q.enunciado || '').slice(0, 160) !== key);
+    const id = q.erroId || 'e' + Date.now().toString(36) + Math.random().toString(36).slice(2, 5);
+    const { erroId, ...clean } = q;
+    list.push({ id, ts: Date.now(), doc: docKey(), docName: docName(), chosen, q: clean });
+    saveErros(list);
+    // Vira flashcard do arquivo, já para revisar.
+    const altTxt = l => (q.alternativas || []).find(a => String(a.letra || '').trim().toUpperCase().charAt(0) === l)?.texto || '';
+    const motivo = (q.eliminar || []).find(e => String(e.letra || '').trim().toUpperCase().charAt(0) === chosen)?.motivo || '';
+    const cards = loadCards().filter(c => c.erroId !== id);
+    cards.push({ id: 'c' + id, erroId: id, box: 0, due: 0, frente: `📌 Questão que você errou: ${q.enunciado}`,
+      verso: `Gabarito ${correct}) ${altTxt(correct)}${q.localizar?.explicacao ? '\n' + q.localizar.explicacao : ''}${chosen ? `\nVocê marcou ${chosen}${motivo ? ': ' + motivo : '.'}` : ''}`,
+      trecho: q.localizar?.trecho || '', norma: '', mnemonico: q.dica || '', termo_discursiva: '' });
+    saveCards(cards);
+    try { cardsInfo(); } catch (_) {}
+  }
+  function erroSolved(id) { saveErros(loadErros().filter(e => e.id !== id)); }
+  function errosRedo(days) {
+    const since = days ? Date.now() - days * DAY : 0;
+    const list = loadErros().filter(e => e.ts >= since);
+    if (!list.length) { ileStatus('Nenhuma questão errada guardada neste período. 👏'); return; }
+    ile.lastKind = 'erros';
+    renderQuestions(list.map(e => ({ ...e.q, erroId: e.id, _src: e.docName })));
+    ileStatus(`📌 Caderno de erros: ${list.length} ${list.length === 1 ? 'questão' : 'questões'} para refazer. Acertou, ela sai do caderno.`);
+  }
+  hooks.errosRedo = errosRedo; hooks.errosCount = days => loadErros().filter(e => e.ts >= (days ? Date.now() - days * DAY : 0)).length;
+
   function renderQuestions(list) {
     ile.score = { answered: 0, right: 0, total: list.length };
     const frag = document.createDocumentFragment();
     frag.append(el('div', { class: 'scorebar' }, el('span', { id: 'ileScore' }),
-      (ile.lastKind === 'extract' ? null : el('button', { type: 'button', text: '↻ Gerar novas', onclick: () => ile.run('questions', ile.lastScope) }))));
+      (ile.lastKind === 'extract' || ile.lastKind === 'erros' ? null : el('button', { type: 'button', text: '↻ Gerar novas', onclick: () => ile.run('questions', ile.lastScope) })),
+      (ile.lastKind !== 'erros' && loadErros().length ? el('button', { type: 'button', text: `📌 Caderno de erros (${loadErros().length})`, onclick: () => errosRedo(0) }) : null)));
     list.forEach((q, i) => frag.append(questionCard(q, i, list.length)));
     ile.out.replaceChildren(frag);
     updateScore();
@@ -1953,7 +1985,7 @@ ${text}
     const correct = String(q.correta || '').trim().toUpperCase().charAt(0);
     let chosen = null, answered = false;
     const card = el('div', { class: 'card' });
-    const tagText = q.origem === 'arquivo' ? `Questão do arquivo${q.numero ? ' nº ' + q.numero : ''} • ${i + 1} de ${total}` : `Questão ${i + 1} de ${total}`;
+    const tagText = q.erroId ? `📌 Você errou esta${q._src ? ' • ' + q._src : ''} • ${i + 1} de ${total}` : q.origem === 'arquivo' ? `Questão do arquivo${q.numero ? ' nº ' + q.numero : ''} • ${i + 1} de ${total}` : `Questão ${i + 1} de ${total}`;
     card.append(el('span', { class: 'tag', text: tagText }), el('p', { class: 'q-stem', text: q.enunciado }));
     const alts = el('div', { class: 'alts', role: 'radiogroup', 'aria-label': `Alternativas da questão ${i + 1}` });
     const rows = [];
@@ -2036,6 +2068,8 @@ ${text}
       if (q.origem === 'arquivo') box.append(el('p', { class: 'hint', style: 'margin:6px 0 0', text: q.gabarito_do_arquivo === false
         ? '⚠ O arquivo não traz o gabarito desta questão: a resposta foi definida pela IA. Confira no material.'
         : '✓ Gabarito conforme o próprio arquivo.' }));
+      if (!ok) { erroSave(q, chosen, correct); box.append(el('p', { class: 'hint', style: 'margin:6px 0 0', text: '📌 Guardada no caderno de erros: virou flashcard e volta na revisão.' })); }
+      else if (q.erroId) { erroSolved(q.erroId); box.append(el('p', { class: 'hint', style: 'margin:6px 0 0', text: '🎉 Acertou! Saiu do caderno de erros.' })); }
       box.dataset.step = 'E'; steps.append(box);
     });
     card.append(el('div', { class: 'q-actions' }, btnI, btnL, btnAnswer), steps);
@@ -4457,7 +4491,7 @@ ${refText ? `\nMATERIAL DE REFERÊNCIA:\n"""\n${refText}\n"""` : ''}`, `Preparan
         el('div', { class: 'field', style: 'margin-top:8px' }, el('span', { class: 'label', text: 'Matérias' }), list),
         el('div', { class: 'field', style: 'margin-top:8px' }, el('span', { class: 'label', text: 'Formato' }), fmt),
         el('div', { class: 'field', style: 'margin-top:8px' }, el('span', { class: 'label', text: 'Como revisar' }), modo),
-        el('div', { class: 'q-actions' }, go)));
+        el('div', { class: 'q-actions' }, go, hooks.errosCount?.(p.days) ? el('button', { type: 'button', text: `📌 Refazer questões que errei (${hooks.errosCount(p.days)})`, onclick: () => hooks.errosRedo(p.days) }) : null)));
     };
     draw();
     box.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
