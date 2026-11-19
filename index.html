@@ -16,7 +16,7 @@
   <meta name="mobile-web-app-capable" content="yes">
   <meta name="apple-mobile-web-app-title" content="Leitor Ativo">
   <meta name="apple-mobile-web-app-status-bar-style" content="default">
-  <title>Leitor de Estudo Ativo • Versão 7.3</title>
+  <title>Leitor de Estudo Ativo • Versão 7.4</title>
   <!-- PDF.js (módulo moderno) é carregado somente ao abrir PDFs. Biblioteca e worker usam a mesma versão. -->
   <style>
     :root {
@@ -457,7 +457,7 @@
     <div id="bkpCols" class="bkp-cols" hidden></div>
     <label class="toggle"><input type="checkbox" id="bkpFull" checked> Incluir os PDFs originais e as imagens (arquivo maior)</label>
     <div class="lib-row"><button type="button" id="bkpExport" class="lib-add">💾 Salvar backup</button><button type="button" id="bkpImport" class="lib-add">📥 Restaurar backup</button></div>
-    <input type="file" id="bkpFile" class="file-input-hidden" accept=".json,application/json" aria-hidden="true" tabindex="-1">
+    <input type="file" id="bkpFile" class="file-input-hidden" aria-hidden="true" tabindex="-1">
     <p class="hint" id="bkpStatus" role="status"></p>
     <div class="gd" id="gdBox">
       <strong>☁ Sincronizar pelo Google Drive</strong>
@@ -492,7 +492,7 @@
 <main>
   <header class="header">
     <div>
-      <div class="eyebrow">Estudo com áudio • v7.3</div>
+      <div class="eyebrow">Estudo com áudio • v7.4</div>
       <h1>Leitor de Estudo Ativo</h1>
       <p class="subtitle">Ouça, acompanhe a frase em destaque e retome de onde quiser.</p>
     </div>
@@ -5501,7 +5501,10 @@ ${t.text}
   async function backupImport(file) {
     if (!file) return;
     bkpStatus('Lendo o backup…');
-    let data; try { data = JSON.parse(await file.text()); } catch (_) { bkpStatus('Este arquivo não é um backup válido do Leitor.', true); return; }
+    let data, raw = '';
+    try { raw = await file.text(); } catch (_) { bkpStatus('Não foi possível ler o arquivo. Se ele está no Google Drive, baixe para o celular primeiro (no Drive: ⋮ › Baixar) e escolha em Downloads.', true); return; }
+    if (!raw) { bkpStatus('O arquivo veio vazio. Se ele está no Google Drive, baixe para o celular primeiro (⋮ › Baixar) e escolha em Downloads.', true); return; }
+    try { data = JSON.parse(raw); } catch (_) { bkpStatus('Este arquivo não é um backup válido do Leitor.', true); return; }
     if (data?.app !== 'leitor-estudo-ativo') { bkpStatus('Este arquivo não é um backup do Leitor de Estudo Ativo.', true); return; }
     const when = new Date(data.at).toLocaleString('pt-BR', { dateStyle: 'short', timeStyle: 'short' });
     const scopeTxt = Array.isArray(data.scope) ? ` das pastas ${data.scope.join(', ')}` : '';
