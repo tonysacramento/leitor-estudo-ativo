@@ -16,7 +16,7 @@
   <meta name="mobile-web-app-capable" content="yes">
   <meta name="apple-mobile-web-app-title" content="Leitor Ativo">
   <meta name="apple-mobile-web-app-status-bar-style" content="default">
-  <title>Leitor de Estudo Ativo • Versão 8.0</title>
+  <title>Leitor de Estudo Ativo • Versão 8.1</title>
   <!-- PDF.js (módulo moderno) é carregado somente ao abrir PDFs. Biblioteca e worker usam a mesma versão. -->
   <style>
     :root {
@@ -259,6 +259,13 @@
     .card li { margin: 3px 0; }
     .tag { display: inline-block; font-size: .72rem; font-weight: 800; letter-spacing: .06em; text-transform: uppercase; color: var(--primary); margin-bottom: 4px; }
     .kw { display: inline-block; padding: 2px 9px; margin: 2px 4px 2px 0; border-radius: 99px; border: 1px solid var(--border); background: var(--surface); font-size: .84rem; }
+    .ile-result { border: 2px solid var(--primary); }
+    .res-grid { display: flex; flex-wrap: wrap; gap: 6px; }
+    .res-chip { min-width: 52px; padding: 6px 8px; font-variant-numeric: tabular-nums; }
+    .res-chip.ok { background: #e3f4e8; border-color: #2e7d4f; color: #1e5c39; }
+    .res-chip.bad { background: #fbe6e3; border-color: #b3261e; color: #8c1d16; }
+    :root[data-theme=dark] .res-chip.ok, :root[data-theme=night] .res-chip.ok { background: #16321f; color: #9fd8b0; }
+    :root[data-theme=dark] .res-chip.bad, :root[data-theme=night] .res-chip.bad { background: #3a1714; color: #f0a49b; }
     .scorebar { display: flex; justify-content: space-between; align-items: center; gap: 10px; flex-wrap: wrap; margin-bottom: 12px; font-weight: 700; }
     .q-stem { font-weight: 600; margin: 4px 0 10px; white-space: pre-line; }
     .alts { display: flex; flex-direction: column; gap: 7px; }
@@ -501,7 +508,7 @@
 <main>
   <header class="header">
     <div>
-      <div class="eyebrow">Estudo com áudio • v8.0</div>
+      <div class="eyebrow">Estudo com áudio • v8.1</div>
       <h1>Leitor de Estudo Ativo</h1>
       <p class="subtitle">Ouça, acompanhe a frase em destaque e retome de onde quiser.</p>
     </div>
@@ -2094,7 +2101,17 @@ ${text}
   function updateScore() {
     const s = ile.score;
     const node = $('ileScore');
-    if (node) node.textContent = `Respondidas: ${s.answered}/${s.total} • Acertos: ${s.right}${s.answered ? ` (${Math.round(s.right / s.answered * 100)}%)` : ''}`;
+    const txt = `Respondidas: ${s.answered}/${s.total} • Acertos: ${s.right}${s.answered ? ` (${Math.round(s.right / s.answered * 100)}%)` : ''}`;
+    if (node) node.textContent = txt;
+    // Resultado também no fim da lista, com o mapa das questões (✓ / ✗).
+    const end = $('ileResult'); if (!end) return;
+    const doneAll = s.answered === s.total && s.total > 0;
+    end.querySelector('.res-title').textContent = doneAll ? `🏁 Resultado: ${s.right} de ${s.total} (${Math.round(s.right / s.total * 100)}%)` : `📊 ${txt}`;
+    end.querySelectorAll('.res-chip').forEach((c, i) => {
+      const r = ile.results?.[i];
+      c.className = 'res-chip' + (r === true ? ' ok' : r === false ? ' bad' : '');
+      c.textContent = `${i + 1} ${r === true ? '✓' : r === false ? '✗' : '·'}`;
+    });
   }
   // ---------- 📌 Caderno de erros: questões erradas voltam como flashcard e na revisão ----------
   const loadErros = () => { try { return JSON.parse(loadSetting('erros', '[]')) || []; } catch (_) { return []; } };
@@ -2133,7 +2150,16 @@ ${text}
     frag.append(el('div', { class: 'scorebar' }, el('span', { id: 'ileScore' }),
       (ile.lastKind === 'extract' || ile.lastKind === 'erros' ? null : el('button', { type: 'button', text: '↻ Gerar novas', onclick: () => ile.run('questions', ile.lastScope) })),
       (ile.lastKind !== 'erros' && loadErros().length ? el('button', { type: 'button', text: `📌 Caderno de erros (${loadErros().length})`, onclick: () => errosRedo(0) }) : null)));
-    list.forEach((q, i) => frag.append(questionCard(q, i, list.length)));
+    ile.results = list.map(() => null);
+    list.forEach((q, i) => { const c = questionCard(q, i, list.length); c.id = 'ileQ' + i; frag.append(c); });
+    frag.append(el('div', { id: 'ileResult', class: 'card ile-result' },
+      el('strong', { class: 'res-title' }),
+      el('p', { class: 'hint', style: 'margin:4px 0 8px', text: 'Toque num número para ir à questão.' }),
+      el('div', { class: 'res-grid' }, ...list.map((_, i) => el('button', { type: 'button', class: 'res-chip', onclick: () => $('ileQ' + i)?.scrollIntoView({ behavior: 'smooth', block: 'start' }) }))),
+      el('div', { class: 'q-actions' },
+        (ile.lastKind === 'extract' || ile.lastKind === 'erros' ? null : el('button', { type: 'button', class: 'primary', text: '↻ Gerar novas questões', onclick: () => ile.run('questions', ile.lastScope) })),
+        el('button', { type: 'button', text: '📌 Caderno de erros', onclick: () => errosRedo(0) }),
+        el('button', { type: 'button', text: '↑ Primeira questão', onclick: () => $('ileQ0')?.scrollIntoView({ behavior: 'smooth', block: 'start' }) }))));
     ile.out.replaceChildren(frag);
     updateScore();
     ile.out.scrollIntoView({ behavior: 'smooth', block: 'start' });
@@ -2198,7 +2224,7 @@ ${text}
       if (answered || !chosen) return;
       answered = true;
       const ok = chosen === correct;
-      ile.score.answered++; if (ok) ile.score.right++; updateScore();
+      ile.score.answered++; if (ok) ile.score.right++; if (ile.results) ile.results[i] = ok; updateScore();
       rows.forEach(r => {
         r.x.disabled = true; r.pick.disabled = true;
         if (r.letter === correct) r.row.classList.add('correct');
