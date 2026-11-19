@@ -16,7 +16,7 @@
   <meta name="mobile-web-app-capable" content="yes">
   <meta name="apple-mobile-web-app-title" content="Leitor Ativo">
   <meta name="apple-mobile-web-app-status-bar-style" content="default">
-  <title>Leitor de Estudo Ativo • Versão 7.5</title>
+  <title>Leitor de Estudo Ativo • Versão 7.6</title>
   <!-- PDF.js (módulo moderno) é carregado somente ao abrir PDFs. Biblioteca e worker usam a mesma versão. -->
   <style>
     :root {
@@ -496,7 +496,7 @@
 <main>
   <header class="header">
     <div>
-      <div class="eyebrow">Estudo com áudio • v7.5</div>
+      <div class="eyebrow">Estudo com áudio • v7.6</div>
       <h1>Leitor de Estudo Ativo</h1>
       <p class="subtitle">Ouça, acompanhe a frase em destaque e retome de onde quiser.</p>
     </div>
@@ -5452,7 +5452,11 @@ ${t.text}
   }
   async function unpackVal(v) {
     if (v && typeof v === 'object' && typeof v.__blob === 'string') {
-      const blob = await (await fetch(v.__blob)).blob();
+      // Decodifica o base64 sem fetch(): dentro do Claude, fetch de "data:" é bloqueado.
+      const [head, b64 = ''] = v.__blob.split(',', 2);
+      const bin = atob(b64), bytes = new Uint8Array(bin.length);
+      for (let i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i);
+      const blob = new Blob([bytes], { type: v.type || (head.match(/^data:([^;]+)/) || [])[1] || '' });
       return v.name ? new File([blob], v.name, { type: v.type || blob.type }) : new Blob([blob], { type: v.type || blob.type });
     }
     if (Array.isArray(v)) return Promise.all(v.map(unpackVal));
