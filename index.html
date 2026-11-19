@@ -16,7 +16,7 @@
   <meta name="mobile-web-app-capable" content="yes">
   <meta name="apple-mobile-web-app-title" content="Leitor Ativo">
   <meta name="apple-mobile-web-app-status-bar-style" content="default">
-  <title>Leitor de Estudo Ativo • Versão 7.9</title>
+  <title>Leitor de Estudo Ativo • Versão 8.0</title>
   <!-- PDF.js (módulo moderno) é carregado somente ao abrir PDFs. Biblioteca e worker usam a mesma versão. -->
   <style>
     :root {
@@ -501,7 +501,7 @@
 <main>
   <header class="header">
     <div>
-      <div class="eyebrow">Estudo com áudio • v7.9</div>
+      <div class="eyebrow">Estudo com áudio • v8.0</div>
       <h1>Leitor de Estudo Ativo</h1>
       <p class="subtitle">Ouça, acompanhe a frase em destaque e retome de onde quiser.</p>
     </div>
@@ -1297,7 +1297,13 @@
     const voices = synth.getVoices();
     // Usa a mesma voz do começo ao fim da leitura, mesmo que a lista de vozes mude no meio.
     if (!state.lockedVoice || !voices.some(v => voiceKey(v) === state.lockedVoice)) state.lockedVoice = els.voiceSelect.value;
-    return voices.find(v => voiceKey(v) === state.lockedVoice) || null;
+    const found = voices.find(v => voiceKey(v) === state.lockedVoice);
+    if (found) return found;
+    // Voz do Claude ou neural indisponível (sem internet): a melhor voz em português instalada no celular.
+    const pt = voices.filter(v => /^pt/i.test(v.lang));
+    const best = pt.find(v => /pt[-_]BR/i.test(v.lang) && v.localService) || pt.find(v => /pt[-_]BR/i.test(v.lang)) || pt.find(v => v.localService) || pt[0] || null;
+    if (best) state.lockedVoice = voiceKey(best);
+    return best;
   }
   function finishReading() {
     if (hooks.finished?.()) return;
@@ -3409,6 +3415,7 @@ ${text}
       if (token !== state.session || !ct.active) return;
       ct.active = false;
       const code = error?.code;
+      if (code !== 'viewer_stopped' && code !== 'not_granted' && (!navigator.onLine || /network|fetch|offline|unavailable/i.test(String(code || error?.message || '')))) { hooks.offlineSwitch?.('A voz do Claude precisa de internet'); return; }
       state.mode = 'idle'; controls();
       if (code === 'not_granted') { ctDisable(); status('A voz do Claude foi desativada. Voltei para a voz do sistema.', true); }
       else if (code === 'rate_limited') status('Muitas leituras seguidas com a voz do Claude. Aguarde um pouco ou use a voz do sistema.', true);
@@ -3854,7 +3861,9 @@ ${text}
     if (!nv.readyOk) status('Preparando a voz neural… na primeira vez ela é baixada (cerca de 60 MB).');
     nvInit(id).then(() => nvPlayIndex(index, token)).catch(error => {
       if (token !== state.session) return;
-      nv.active = false; state.mode = 'idle'; controls(); status('A voz neural não pôde ser carregada: ' + (error?.message || 'erro') + '.', true);
+      nv.active = false;
+      if (!navigator.onLine) { hooks.offlineSwitch?.('A voz neural ainda não foi baixada neste aparelho'); return; }
+      state.mode = 'idle'; controls(); status('A voz neural não pôde ser carregada: ' + (error?.message || 'erro') + '.', true);
     });
     return true;
   };
@@ -3869,6 +3878,33 @@ ${text}
   els.speedRange.addEventListener('input', () => { if (nv.audio) nv.audio.playbackRate = Number(els.speedRange.value) || 1; });
   els.voiceSelect.addEventListener('change', () => { if (usingNeural()) nvInit(els.voiceSelect.value.slice(7)); nvTuneUI(); });
   nvAddVoices();
+
+  // ===================== 📴 Sem internet: a leitura continua com a voz do próprio celular =====================
+  const off = { on: false };
+  const needsNet = () => els.voiceSelect.value.startsWith('claude:') || (usingNeural() && !nv.readyOk);
+  const offlineBase = { playFrom: hooks.playFrom, externalEngine: hooks.externalEngine };
+  hooks.playFrom = (index, token) => {
+    if (!navigator.onLine && needsNet()) off.on = true;
+    if (off.on && navigator.onLine) off.on = false;
+    if (off.on) { state.lockedVoice = null; return false; } // false = usa a voz do sistema (Web Speech)
+    return offlineBase.playFrom?.(index, token) || false;
+  };
+  hooks.offlineSwitch = why => {
+    if (!hasSpeech) { state.mode = 'idle'; controls(); status(why + ', e este navegador não tem voz própria. Conecte-se para continuar.', true); return; }
+    off.on = true; state.lockedVoice = null;
+    status(`📴 Sem internet: ${why}. Continuando com a voz do celular.`);
+    playFrom(state.index);
+  };
+  window.addEventListener('offline', () => {
+    // Só troca se a voz atual depende da internet (a neural já baixada funciona offline).
+    if (state.mode === 'playing' && ct.active) { hooks.cancel?.(); hooks.offlineSwitch('a voz do Claude precisa de internet'); }
+  });
+  window.addEventListener('online', () => {
+    if (!off.on) return;
+    off.on = false;
+    if (state.mode === 'playing') { status('Internet de volta: voltando para a voz escolhida.'); playFrom(state.index); }
+    else status('Internet de volta: a voz escolhida volta no próximo ▶.');
+  });
 
   // Destaca “Usar questões do arquivo” quando o texto aberto parece ter questões.
   hooks.prepared = () => {
