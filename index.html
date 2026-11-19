@@ -16,7 +16,7 @@
   <meta name="mobile-web-app-capable" content="yes">
   <meta name="apple-mobile-web-app-title" content="Leitor Ativo">
   <meta name="apple-mobile-web-app-status-bar-style" content="default">
-  <title>Leitor de Estudo Ativo • Versão 6.7</title>
+  <title>Leitor de Estudo Ativo • Versão 6.8</title>
   <!-- PDF.js (módulo moderno) é carregado somente ao abrir PDFs. Biblioteca e worker usam a mesma versão. -->
   <style>
     :root {
@@ -36,6 +36,41 @@
       --active: #664f12; --active-border: #f8d46b;
       --focus: #83c4ff; --shadow: 0 12px 40px rgba(0, 0, 0, .18);
     }
+    :root[data-theme="soft"] {
+      color-scheme: light;
+      --bg: #ece4d3; --surface: #f6f0e3; --surface-2: #efe7d6;
+      --border: #d9cdb4; --text: #3f362b; --muted: #7a6c58;
+      --primary: #6b5a3e; --primary-hover: #54462f; --on-primary: #fbf6ea;
+      --active: #ead9a4; --active-border: #a8873a;
+      --focus: #8a6d3b; --shadow: 0 10px 30px rgba(80, 60, 30, .08);
+    }
+    :root[data-theme="night"] {
+      color-scheme: dark;
+      --bg: #0b0a08; --surface: #14120e; --surface-2: #1b1813;
+      --border: #2e2920; --text: #c9b48e; --muted: #8c7c62;
+      --primary: #c79a52; --primary-hover: #dbb06a; --on-primary: #1a1408;
+      --active: #3a2d10; --active-border: #a07a2c;
+      --focus: #b88a45; --shadow: 0 12px 40px rgba(0, 0, 0, .4);
+    }
+    :root[data-theme="soft"] .reader, :root[data-theme="night"] .reader { line-height: 1.85; letter-spacing: .01em; word-spacing: .04em; }
+    :root[data-theme="night"] img { filter: brightness(.75) sepia(.25); }
+    :root[data-theme="night"] .status.error, :root[data-theme="night"] .verdict.bad { color: #e0907e; }
+    :root[data-theme="night"] .verdict.ok { color: #9fc48a; }
+    .book[data-bk-theme="noite"] { --bk-bg: #0b0a08; --bk-fg: #c9b48e; --bk-muted: #7f705a; --bk-hl: #3a2d10; --bk-bar: rgba(11,10,8,.97); --bk-line: #2a251c; color-scheme: dark; }
+    .bk-themes [data-value="noite"] { background: #0b0a08; color: #c9b48e; }
+    .cf-filter, .cf-dimmer { position: fixed; inset: 0; pointer-events: none; z-index: 2147483000; transition: background-color .4s; }
+    .cf-filter { mix-blend-mode: multiply; background: rgba(255, 140, 30, 0); }
+    .cf-dimmer { background: rgba(0, 0, 0, 0); }
+    .comfort { position: fixed; z-index: 2147483100; right: 12px; top: calc(env(safe-area-inset-top, 0px) + 12px); width: min(380px, calc(100vw - 24px)); background: var(--surface); color: var(--text); border: 1px solid var(--border); border-radius: 16px; box-shadow: 0 18px 50px rgba(0,0,0,.28); padding: 14px; display: grid; gap: 10px; }
+    .comfort[hidden] { display: none; }
+    .cf-head { display: flex; justify-content: space-between; align-items: center; }
+    .cf-modes { display: grid; grid-template-columns: repeat(4, 1fr); gap: 6px; }
+    .cf-modes button { display: grid; justify-items: center; gap: 2px; padding: 8px 4px; font-size: 1.2rem; }
+    .cf-modes button span { font-size: .72rem; font-weight: 650; }
+    .cf-modes button[aria-checked="true"] { border-color: var(--primary); box-shadow: inset 0 0 0 2px var(--primary); }
+    .cf-row { display: grid; grid-template-columns: 1fr 1.2fr 40px; align-items: center; gap: 8px; font-size: .9rem; }
+    .cf-row output { text-align: right; color: var(--muted); font-variant-numeric: tabular-nums; }
+    .comfort input[type=time] { padding: 2px 4px; border: 1px solid var(--border); border-radius: 6px; background: var(--surface); color: var(--text); font: inherit; font-size: .85rem; }
     * { box-sizing: border-box; }
     body { margin: 0; padding: clamp(12px, 3vw, 36px); background: var(--bg); color: var(--text); font: 15px/1.5 system-ui, -apple-system, "Segoe UI", sans-serif; }
     main { max-width: 1080px; margin: 0 auto; }
@@ -447,7 +482,7 @@
 <main>
   <header class="header">
     <div>
-      <div class="eyebrow">Estudo com áudio • v6.7</div>
+      <div class="eyebrow">Estudo com áudio • v6.8</div>
       <h1>Leitor de Estudo Ativo</h1>
       <p class="subtitle">Ouça, acompanhe a frase em destaque e retome de onde quiser.</p>
     </div>
@@ -742,6 +777,21 @@
     <label class="toggle"><input type="checkbox" id="pomoAuto" checked> Começar a próxima fase sozinho</label>
   </div>
 </div>
+<div id="comfort" class="comfort" hidden role="dialog" aria-label="Conforto visual">
+  <div class="cf-head"><strong>👁 Conforto visual</strong><button type="button" id="cfClose" aria-label="Fechar">✕</button></div>
+  <div class="cf-modes" role="radiogroup" aria-label="Modo da tela">
+    <button type="button" data-cf="light" role="radio">☀️<span>Claro</span></button>
+    <button type="button" data-cf="dark" role="radio">◐<span>Escuro</span></button>
+    <button type="button" data-cf="soft" role="radio">🌿<span>Proteção visual</span></button>
+    <button type="button" data-cf="night" role="radio">🌙<span>Leitura noturna</span></button>
+  </div>
+  <label class="cf-row">Filtro de luz azul <input type="range" id="cfWarm" min="0" max="60" step="5" value="0"><output id="cfWarmV">0%</output></label>
+  <label class="cf-row">Diminuir o brilho <input type="range" id="cfDim" min="0" max="60" step="5" value="0"><output id="cfDimV">0%</output></label>
+  <label class="toggle"><input type="checkbox" id="cfAuto"> Leitura noturna automática das <input type="time" id="cfFrom" value="20:00"> às <input type="time" id="cfTo" value="06:00"></label>
+  <p class="hint">Proteção visual: fundo creme, contraste mais suave e letras um pouco mais espaçadas. Leitura noturna: fundo quase preto, letras âmbar e menos luz azul. O livro (📖) acompanha o modo escolhido.</p>
+</div>
+<div id="cfFilter" class="cf-filter" aria-hidden="true"></div>
+<div id="cfDimmer" class="cf-dimmer" aria-hidden="true"></div>
 <div id="alertBanner" class="alert-banner" hidden role="alert"></div>
 <div id="imgViewer" class="img-viewer" hidden role="dialog" aria-label="Imagem ampliada">
   <button type="button" id="imgViewerClose" class="img-viewer-close" aria-label="Fechar imagem">✕</button>
@@ -800,7 +850,9 @@
       <button type="button" data-set="theme" data-value="branco" aria-label="Branco">Aa</button>
       <button type="button" data-set="theme" data-value="sepia" aria-label="Sépia">Aa</button>
       <button type="button" data-set="theme" data-value="escuro" aria-label="Escuro">Aa</button>
-      <button type="button" data-set="theme" data-value="preto" aria-label="Preto">Aa</button></div></div>
+      <button type="button" data-set="theme" data-value="preto" aria-label="Preto">Aa</button>
+      <button type="button" data-set="theme" data-value="noite" aria-label="Noturno">Aa</button></div></div>
+    <div class="bk-row"><span>Conforto</span><button type="button" id="bkComfort">👁 Luz azul, brilho e modo noturno</button></div>
   </div>
   <div class="book-sheet" id="bkIleSheet" hidden>
     <strong>Método I-L-E</strong>
@@ -5474,6 +5526,61 @@ ${t.text}
   document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'hidden' && gd.dirty && gdValid()) gdSync({ quiet: true }); });
   gdDraw();
   if (gd.connected && gd.available) setTimeout(() => gdSync({ quiet: true }), 1500);
+
+  // ===================== 👁 Conforto visual: proteção visual, leitura noturna, filtro de luz azul e brilho =====================
+  const cf = (() => { try { return JSON.parse(loadSetting('comfort', '{}')) || {}; } catch (_) { return {}; } })();
+  cf.mode ||= document.documentElement.dataset.theme || 'light'; cf.warm ??= 0; cf.dim ??= 0; cf.from ||= '20:00'; cf.to ||= '06:00';
+  const CF_BOOK = { light: null, dark: 'escuro', soft: 'sepia', night: 'noite' };
+  const CF_LABEL = { light: '☀️ Claro', dark: '◐ Escuro', soft: '🌿 Suave', night: '🌙 Noturno' };
+  const inRange = (from, to) => {
+    const n = new Date(), m = n.getHours() * 60 + n.getMinutes();
+    const [a, b] = [from, to].map(t => { const [h, mm] = t.split(':').map(Number); return h * 60 + mm; });
+    return a <= b ? m >= a && m < b : m >= a || m < b;
+  };
+  let cfAutoNight = false;
+  function cfEffective() { return cf.auto && inRange(cf.from, cf.to) ? 'night' : cf.mode; }
+  function cfApply(syncBook = false) {
+    const mode = cfEffective();
+    document.documentElement.dataset.theme = mode;
+    document.querySelector('meta[name=theme-color]')?.setAttribute('content', { light: '#174b87', dark: '#101827', soft: '#6b5a3e', night: '#0b0a08' }[mode]);
+    // à noite, um pouco de filtro âmbar por padrão se o usuário não escolheu
+    const warm = mode === 'night' && !cf.warmSet ? Math.max(cf.warm, 20) : cf.warm;
+    $('cfFilter').style.backgroundColor = `rgba(255, 140, 30, ${warm / 100 * .55})`;
+    $('cfDimmer').style.backgroundColor = `rgba(0, 0, 0, ${cf.dim / 100 * .7})`;
+    els.btnTheme.textContent = '👁 ' + (CF_LABEL[mode] || 'Tela').split(' ')[1];
+    els.btnTheme.title = 'Conforto visual: ' + CF_LABEL[mode] + (cf.auto && mode === 'night' && cf.mode !== 'night' ? ' (automático)' : '');
+    document.querySelectorAll('#comfort [data-cf]').forEach(b => b.setAttribute('aria-checked', String(b.dataset.cf === cf.mode)));
+    $('cfWarm').value = cf.warm; $('cfWarmV').textContent = cf.warm + '%';
+    $('cfDim').value = cf.dim; $('cfDimV').textContent = cf.dim + '%';
+    $('cfAuto').checked = !!cf.auto; $('cfFrom').value = cf.from; $('cfTo').value = cf.to;
+    const autoNow = mode === 'night' && cf.mode !== 'night';
+    if (syncBook || autoNow !== cfAutoNight) {
+      const t = CF_BOOK[mode] || (autoNow ? null : null);
+      if (bk.settings) {
+        if (autoNow && !cfAutoNight) { cf.bookBefore = bk.settings.theme; bk.settings.theme = 'noite'; bkApplySettings(); }
+        else if (!autoNow && cfAutoNight && cf.bookBefore) { bk.settings.theme = cf.bookBefore; bkApplySettings(); }
+        else if (syncBook) { bk.settings.theme = t || 'branco'; bkApplySettings(); }
+      }
+      cfAutoNight = autoNow;
+    }
+    saveSetting('comfort', JSON.stringify(cf)); saveSetting('theme', mode === 'night' || mode === 'dark' ? 'dark' : 'light');
+  }
+  // substitui o antigo botão de tema: agora abre o painel
+  const oldTheme = els.btnTheme.cloneNode(true); els.btnTheme.replaceWith(oldTheme); els.btnTheme = oldTheme;
+  els.btnTheme.setAttribute('aria-label', 'Conforto visual: modo da tela, leitura noturna e proteção visual');
+  els.btnTheme.addEventListener('click', () => { $('comfort').hidden = !$('comfort').hidden; });
+  $('cfClose').addEventListener('click', () => { $('comfort').hidden = true; });
+  document.addEventListener('keydown', e => { if (e.key === 'Escape') $('comfort').hidden = true; });
+  document.querySelectorAll('#comfort [data-cf]').forEach(b => b.addEventListener('click', () => { cf.mode = b.dataset.cf; cfApply(true); }));
+  $('cfWarm').addEventListener('input', e => { cf.warm = Number(e.target.value); cf.warmSet = true; cfApply(); });
+  $('cfDim').addEventListener('input', e => { cf.dim = Number(e.target.value); cfApply(); });
+  $('cfAuto').addEventListener('change', e => { cf.auto = e.target.checked; cfApply(); });
+  $('cfFrom').addEventListener('change', e => { cf.from = e.target.value || '20:00'; cfApply(); });
+  $('cfTo').addEventListener('change', e => { cf.to = e.target.value || '06:00'; cfApply(); });
+  setInterval(() => { if (cf.auto && document.documentElement.dataset.theme !== cfEffective()) cfApply(); }, 60000);
+  // atalho dentro do livro
+  $('bkComfort')?.addEventListener('click', () => { $('comfort').hidden = false; });
+  cfApply();
 
   progress(); controls();
   if (!hasSpeech) status('Este navegador não oferece síntese de voz; tente Chrome ou Edge atualizado.', true);
