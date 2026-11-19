@@ -16,7 +16,7 @@
   <meta name="mobile-web-app-capable" content="yes">
   <meta name="apple-mobile-web-app-title" content="Leitor Ativo">
   <meta name="apple-mobile-web-app-status-bar-style" content="default">
-  <title>Leitor de Estudo Ativo • Versão 7.0</title>
+  <title>Leitor de Estudo Ativo • Versão 7.1</title>
   <!-- PDF.js (módulo moderno) é carregado somente ao abrir PDFs. Biblioteca e worker usam a mesma versão. -->
   <style>
     :root {
@@ -489,7 +489,7 @@
 <main>
   <header class="header">
     <div>
-      <div class="eyebrow">Estudo com áudio • v7.0</div>
+      <div class="eyebrow">Estudo com áudio • v7.1</div>
       <h1>Leitor de Estudo Ativo</h1>
       <p class="subtitle">Ouça, acompanhe a frase em destaque e retome de onde quiser.</p>
     </div>
@@ -3666,7 +3666,7 @@ ${text}
         } else if (data.type === 'audio') {
           const url = URL.createObjectURL(new Blob([data.buffer], { type: 'audio/wav' }));
           nv.cache.set(data.key, url);
-          if (nv.cache.size > 80) { const [k, u] = nv.cache.entries().next().value; nv.cache.delete(k); URL.revokeObjectURL(u); }
+          if (nv.cache.size > 160) { const [k, u] = nv.cache.entries().next().value; nv.cache.delete(k); URL.revokeObjectURL(u); }
           nv.waiting.get(data.key)?.resolve(url); nv.waiting.delete(data.key);
           if (nv.queue[0]?.keys.includes(data.key) && nv.queue[0].keys.every(k => nv.cache.has(k))) { nv.queue.shift(); nv.inflight = false; nvPump(); }
         } else if (data.type === 'error') {
@@ -3741,7 +3741,9 @@ ${text}
   function nvPrefetch(from) {
     // Gera as próximas frases com antecedência; em segundo plano o áudio já está pronto.
     const ahead = [];
-    for (let i = from; i < Math.min(state.blocks.length, from + 10); i++) if (!nv.cache.has(nvKey(state.blocks[i].text))) ahead.push(i);
+    // Com a tela apagada o aparelho gera mais devagar: mantém uma reserva maior de frases prontas.
+    const reserve = document.visibilityState === 'hidden' ? 40 : 25;
+    for (let i = from; i < Math.min(state.blocks.length, from + reserve); i++) if (!nv.cache.has(nvKey(state.blocks[i].text))) ahead.push(i);
     for (let i = 0; i < ahead.length; i += 2) nvRequest(ahead.slice(i, i + 2));
   }
   function nvAudio() {
