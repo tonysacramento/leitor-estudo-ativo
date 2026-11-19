@@ -16,7 +16,7 @@
   <meta name="mobile-web-app-capable" content="yes">
   <meta name="apple-mobile-web-app-title" content="Leitor Ativo">
   <meta name="apple-mobile-web-app-status-bar-style" content="default">
-  <title>Leitor de Estudo Ativo • Versão 6.6</title>
+  <title>Leitor de Estudo Ativo • Versão 6.7</title>
   <!-- PDF.js (módulo moderno) é carregado somente ao abrir PDFs. Biblioteca e worker usam a mesma versão. -->
   <style>
     :root {
@@ -318,6 +318,8 @@
     .bkp { border: 1px solid var(--border); border-radius: 10px; padding: 8px 10px; }
     .bkp[open] { display: grid; gap: 6px; }
     .bkp summary { cursor: pointer; font-weight: 700; }
+    .bkp-cols { display: grid; gap: 4px; font-size: .86rem; max-height: 180px; overflow-y: auto; padding: 4px 0; }
+    .bkp-cols[hidden] { display: none; }
     .bkp p { margin: 0; }
     #bkpStatus.error, #gdStatus.error { color: #b3261e; }
     .gd { display: grid; gap: 6px; margin-top: 10px; padding-top: 10px; border-top: 1px dashed var(--border); }
@@ -367,6 +369,9 @@
     .drop-before { box-shadow: 0 -3px 0 0 var(--primary); }
     .drop-into { outline: 2px dashed var(--primary); outline-offset: 2px; border-radius: 8px; }
     .lib-movesel { width: 100%; padding: 6px 8px; border: 1px solid var(--border); border-radius: 8px; background: var(--surface); color: var(--text); font: inherit; font-size: .85rem; }
+    .lib-arts { display: flex; flex-wrap: wrap; gap: 4px; padding: 0 8px 4px; }
+    .lib-art { font-size: .74rem; padding: 2px 8px; border-radius: 999px; border: 1px solid var(--border); background: var(--surface); }
+    .lib-item[data-from] { margin-left: 14px; }
     .lib-actions { display: flex; justify-content: flex-end; gap: 2px; padding: 0 6px 6px; }
     .lib-actions button { padding: 3px 9px; font-size: .78rem; border-color: transparent; background: transparent; }
     .lib-actions button.confirm { color: #b42318; border-color: #b42318; }
@@ -403,6 +408,8 @@
   <details class="bkp" id="bkpBox" aria-label="Backup">
     <summary>💾 Salvar / restaurar backup (celular ⇄ PC)</summary>
     <p class="hint">Salva arquivos, ponto de leitura, cronograma, flashcards e caderno de erros num arquivo. No outro aparelho, toque em Restaurar e escolha esse arquivo.</p>
+    <div class="ed-days bkp-scope"><label><input type="radio" name="bkpScope" value="all" checked> Tudo</label><label><input type="radio" name="bkpScope" value="cols"> Escolher pastas</label></div>
+    <div id="bkpCols" class="bkp-cols" hidden></div>
     <label class="toggle"><input type="checkbox" id="bkpFull" checked> Incluir os PDFs originais e as imagens (arquivo maior)</label>
     <div class="lib-row"><button type="button" id="bkpExport" class="lib-add">💾 Salvar backup</button><button type="button" id="bkpImport" class="lib-add">📥 Restaurar backup</button></div>
     <input type="file" id="bkpFile" class="file-input-hidden" accept=".json,application/json" aria-hidden="true" tabindex="-1">
@@ -440,7 +447,7 @@
 <main>
   <header class="header">
     <div>
-      <div class="eyebrow">Estudo com áudio • v6.6</div>
+      <div class="eyebrow">Estudo com áudio • v6.7</div>
       <h1>Leitor de Estudo Ativo</h1>
       <p class="subtitle">Ouça, acompanhe a frase em destaque e retome de onde quiser.</p>
     </div>
@@ -510,7 +517,7 @@
           <strong>📎 Toque para escolher arquivos</strong>
           <span class="hint">pode selecionar vários • ou arraste e solte aqui</span>
         </label>
-        <input type="file" id="fileInput" class="file-input-hidden" multiple aria-labelledby="fileLabel">
+        <input type="file" id="fileInput" class="file-input-hidden" multiple accept=".pdf,.txt,.md,.markdown,.zip,application/pdf,text/plain,text/markdown,application/zip" aria-labelledby="fileLabel">
         <button type="button" id="btnFolder" class="edital-btn">📁 Subir pasta de materiais (cada subpasta vira uma matéria)</button>
         <button type="button" id="btnEdital" class="edital-btn">📚 Adicionar o conteúdo do edital TCE-SP (90 tópicos, dicionário e mapas)</button>
         <span class="hint" id="fileHint">PDF com texto selecionável, TXT ou Markdown. Vários arquivos formam uma lista de leitura.</span>
@@ -1674,9 +1681,40 @@
     }
   }
   // Importa um ou vários arquivos para a lista de leitura.
+  // Pasta baixada do Google Drive (ou qualquer .zip): extrai mantendo as subpastas como matérias.
+  let zipLib = null;
+  const loadZip = () => zipLib || (zipLib = new Promise((res, rej) => {
+    if (window.JSZip) return res(window.JSZip);
+    const s = document.createElement('script'); s.src = 'https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js';
+    s.onload = () => res(window.JSZip); s.onerror = () => { zipLib = null; rej(new Error('sem conexão para abrir o .zip')); }; document.head.append(s);
+  }));
+  async function unzipFiles(zipFile) {
+    status(`Abrindo ${zipFile.name}…`);
+    const zip = await (await loadZip()).loadAsync(zipFile);
+    const base = zipFile.name.replace(/\.zip$/i, '').replace(/-\d{8}T\d{6}Z-\d+-\d+$/, '').trim();
+    const out = [];
+    for (const entry of Object.values(zip.files)) {
+      if (entry.dir || /(^|\/)(__MACOSX|\.)/.test(entry.name)) continue;
+      const fname = entry.name.split('/').pop();
+      if (!/\.(pdf|txt|md|markdown)$/i.test(fname)) continue;
+      const blob = await entry.async('blob');
+      const f = new File([blob], fname, { type: /\.pdf$/i.test(fname) ? 'application/pdf' : 'text/plain' });
+      const path = entry.name.includes('/') ? entry.name : `${base}/${entry.name}`;
+      f.__path = path; out.push(f);
+    }
+    return out;
+  }
   async function handleFiles(fileList) {
-    const files = [...(fileList || [])].filter(Boolean);
+    let files = [...(fileList || [])].filter(Boolean);
     if (!files.length) return;
+    const zips = files.filter(f => /\.zip$/i.test(f.name) || f.type === 'application/zip' || f.type === 'application/x-zip-compressed');
+    if (zips.length) {
+      files = files.filter(f => !zips.includes(f));
+      try { for (const z of zips) files.push(...await unzipFiles(z)); }
+      catch (e) { status('Não foi possível abrir o .zip: ' + e.message, true); if (!files.length) return; }
+      if (!files.length) { status('O .zip não tem PDF, TXT ou Markdown.', true); return; }
+      return stashFiles(files);
+    }
     const fromFolder = files.some(f => (f.__path || f.webkitRelativePath || '').includes('/'));
     if (fromFolder || files.length > 3) return stashFiles(files);
     const job = ++state.importJob;
@@ -2854,6 +2892,7 @@ ${text}
     const li = document.createElement('li');
     li.className = 'lib-item' + (active ? ' active' : '') + (doc.pending ? ' pending' : '');
     if (withActions) li.dataset.id = doc.id;
+    if (doc.fromId) li.dataset.from = doc.fromId;
     const open = document.createElement('button');
     open.type = 'button'; open.className = 'lib-open';
     open.setAttribute('aria-current', active ? 'true' : 'false');
@@ -2865,6 +2904,14 @@ ${text}
     const bar = document.createElement('div'); bar.className = 'lib-bar';
     bar.append(Object.assign(document.createElement('div'), { style: `width:${pct}%` }));
     open.append(name, meta, bar);
+    if (withActions) {
+      const arts = libArtifacts(doc);
+      if (arts.length) {
+        const row = el('div', { class: 'lib-arts' });
+        for (const a of arts) row.append(el('button', { type: 'button', class: 'lib-art', text: a.label, title: a.title, onclick: e => { e.stopPropagation(); a.open(); } }));
+        li.append(row);
+      }
+    }
     open.addEventListener('click', () => {
       if (active) { if (bk.open) { bkSheets(null); bkChrome(false); } else if (window.innerWidth < 1180) libDrawer(false); return; }
       libSwitch(doc.id, { autoplay: state.mode === 'playing' });
@@ -2897,7 +2944,7 @@ ${text}
     const from = colOf(doc);
     lib.docs = lib.docs.filter(d => d.id !== id);
     let i;
-    if (target.beforeId) { const t = libDoc(target.beforeId); doc.col = colOf(t); i = lib.docs.indexOf(t); }
+    if (target.beforeId && target.beforeId !== id) { const t = libDoc(target.beforeId); doc.col = colOf(t); i = lib.docs.indexOf(t); }
     else { doc.col = target.col; const last = lib.docs.map(colOf).lastIndexOf(target.col); i = last < 0 ? lib.docs.length : last + 1; }
     lib.docs.splice(i, 0, doc);
     if (doc.col !== from) { libDb.put(doc); lib.meta.open[doc.col] = true; }
@@ -2955,6 +3002,25 @@ ${text}
     sel.addEventListener('change', () => { if (sel.value) libPlaceDoc(doc.id, { col: sel.value }); });
     sel.addEventListener('blur', () => { if (sel.isConnected) libRender(true); });
     actions.replaceChildren(sel); sel.focus();
+  }
+  // Materiais gerados a partir de um arquivo (mapa, exercícios, flashcards, discursiva, podcast) aparecem junto dele.
+  function libArtifacts(doc) {
+    const has = k => { const v = loadSetting(k + '-' + doc.id, ''); return v && v !== 'null' && v !== '[]' && v !== '{}'; };
+    const openTab = tab => async () => {
+      if (lib.activeId !== doc.id) await libSwitch(doc.id, {});
+      if (window.innerWidth < 1180) libDrawer(false);
+      if (bk.open) { bkSheets(null); bkChrome(false); }
+      const t = document.querySelector(`#practice [data-tab="${tab}"]`); t?.click();
+      $('practice').scrollIntoView({ behavior: 'smooth', block: 'start' });
+    };
+    const out = [];
+    if (has('map')) out.push({ label: '🗺 Mapa', title: 'Abrir o mapa mental deste arquivo', open: openTab('map') });
+    if (has('ex')) out.push({ label: '✋ Exercícios', title: 'Abrir os exercícios deste arquivo', open: openTab('ex') });
+    let nCards = 0; try { nCards = (JSON.parse(loadSetting('cards-' + doc.id, '[]')) || []).length; } catch (_) {}
+    if (nCards) out.push({ label: `🃏 ${nCards}`, title: 'Revisar os flashcards deste arquivo', open: openTab('cards') });
+    try { if (JSON.parse(loadSetting('disc-' + doc.id, '{}'))?.rascunho) out.push({ label: '✍️ Discursiva', title: 'Abrir a discursiva deste arquivo', open: openTab('disc') }); } catch (_) {}
+    for (const pod of lib.docs.filter(d => d.fromId === doc.id)) out.push({ label: pod.kind === 'HIST' ? '📖 História' : '🎧 Podcast', title: pod.name, open: () => libSwitch(pod.id, { autoplay: true }) });
+    return out;
   }
   function libRender(now = false) {
     // Durante a leitura a lista é atualizada no máximo uma vez por segundo.
@@ -3705,7 +3771,7 @@ ${text}
     const fresh = (data.cartoes || []).filter(c => c?.frente && c?.verso)
       .map(c => ({ ...c, id: 'c' + Date.now().toString(36) + Math.random().toString(36).slice(2, 6), box: 0, due: 0 }));
     if (!fresh.length) { prStatus('Não vieram cartões válidos. Tente de novo.', true); return; }
-    saveCards(cards.concat(fresh)); cardsInfo();
+    saveCards(cards.concat(fresh)); cardsInfo(); libRender(true);
     prStatus(`${fresh.length} cartões criados para “${docName()}”.`);
     cardsReview();
   }
@@ -3881,6 +3947,12 @@ ${t.text}
     $('podOut').replaceChildren(card);
     // Entra na lista de arquivos: guarda a posição e permite ouvir no modo livro.
     const doc = libAdd(title, { text, pdfPages: null, ignored: [] }, libDoc(lib.activeId) ? colOf(libDoc(lib.activeId)) : undefined);
+    // Fica logo abaixo do arquivo de origem, na mesma pasta.
+    if (srcId && libDoc(srcId) && doc.id !== srcId) {
+      const src = libDoc(srcId); doc.fromId = srcId; doc.kind = story ? 'HIST' : 'POD'; libDb.put(doc);
+      const others = lib.docs.filter(d => d.id !== doc.id), after = others[others.indexOf(src) + 1];
+      libPlaceDoc(doc.id, after && colOf(after) === colOf(src) ? { beforeId: after.id } : { col: colOf(src) });
+    }
     play.addEventListener('click', async () => { await libSwitch(doc.id, { autoplay: true }); els.readerView.closest('section')?.scrollIntoView({ behavior: 'smooth', block: 'start' }); });
     prStatus(`${story ? 'História criada' : 'Podcast criado'} e salvo na biblioteca como “${title}”.`);
     hooks.podCreated?.(srcId, doc);
@@ -4839,7 +4911,7 @@ ${t.text}
     if (!data) return;
     if (!(data.ramos || []).length) { prStatus('O mapa veio vazio. Tente de novo.', true); return; }
     saveSetting(mapKey(), JSON.stringify(data));
-    renderMap(data);
+    renderMap(data); libRender(true);
     prStatus(`Mapa mental de “${docName()}” criado e salvo para este arquivo.`);
   }
   $('mapGen').addEventListener('click', mapGenerate);
@@ -4946,7 +5018,7 @@ ${t.text}
     const list = (data.exercicios || []).filter(exValid);
     if (!list.length) { prStatus('Os exercícios vieram incompletos. Tente de novo.', true); return; }
     saveSetting(exKey(), JSON.stringify(list));
-    renderEx(list);
+    renderEx(list); libRender(true);
     prStatus(`${list.length} exercícios criados para “${docName()}”.`);
   }
   $('exGen').addEventListener('click', exGenerate);
@@ -5150,25 +5222,47 @@ ${t.text}
     req.onerror = () => resolve([]);
   });
   const bkpStatus = (msg, err) => { const s = $('bkpStatus'); s.textContent = msg; s.classList.toggle('error', !!err); };
+  function bkpDrawCols() {
+    const pick = document.querySelector('input[name=bkpScope]:checked')?.value === 'cols';
+    const box = $('bkpCols'); box.hidden = !pick; if (!pick) return;
+    const prev = new Set([...box.querySelectorAll('input:checked')].map(i => i.value));
+    box.replaceChildren(...libCols().map(c => {
+      const n = lib.docs.filter(d => colOf(d) === c).length;
+      return el('label', {}, Object.assign(el('input', { type: 'checkbox', value: c }), { checked: prev.has(c) }), ` 📁 ${c} (${n})`);
+    }));
+  }
+  document.querySelectorAll('input[name=bkpScope]').forEach(r => r.addEventListener('change', bkpDrawCols));
+  $('bkpBox').addEventListener('toggle', bkpDrawCols);
   async function backupExport() {
     const full = $('bkpFull').checked;
+    const pick = document.querySelector('input[name=bkpScope]:checked')?.value === 'cols';
+    const cols = pick ? new Set([...$('bkpCols').querySelectorAll('input:checked')].map(i => i.value)) : null;
+    if (pick && !cols.size) { bkpStatus('Marque pelo menos uma pasta.', true); return; }
     bkpStatus('Montando o backup…');
     libSaveMeta(true);
+    const docs = (await idbAll('docs')).filter(d => !cols || cols.has(colOf(d)));
+    const ids = new Set(docs.map(d => d.id));
     const settings = {};
     for (let i = 0; i < localStorage.length; i++) {
       const k = localStorage.key(i);
-      if (k?.startsWith('leitor-ativo-') && k !== 'leitor-ativo-gemini-key') settings[k] = localStorage.getItem(k);
+      if (!k?.startsWith('leitor-ativo-') || k === 'leitor-ativo-gemini-key' || k === 'leitor-ativo-lib-meta' || /^leitor-ativo-(gdrive-|sync-)/.test(k)) continue;
+      // Por pasta: só o que pertence aos arquivos escolhidos (flashcards, mapa, exercícios, discursiva).
+      const m = k.match(/^leitor-ativo-(?:cards|map|ex|disc)-(.+)$/);
+      if (cols && !(m && ids.has(m[1]))) continue;
+      settings[k] = localStorage.getItem(k);
     }
-    const parts = [`{"app":"leitor-estudo-ativo","v":1,"at":${Date.now()},"full":${full},"settings":${JSON.stringify(settings)},"docs":[`];
-    const docs = await idbAll('docs');
+    const pick1 = o => Object.fromEntries(Object.entries(o || {}).filter(([id]) => ids.has(id)));
+    const libMeta = { pos: pick1(lib.meta.pos), done: pick1(lib.meta.done), cols: libCols().filter(c => !cols || cols.has(c)), order: lib.docs.map(d => d.id).filter(id => ids.has(id)) };
+    const parts = [`{"app":"leitor-estudo-ativo","v":2,"at":${Date.now()},"full":${full},"scope":${JSON.stringify(cols ? [...cols] : 'all')},"settings":${JSON.stringify(settings)},"libMeta":${JSON.stringify(libMeta)},"docs":[`];
     for (let i = 0; i < docs.length; i++) parts.push((i ? ',' : '') + JSON.stringify(await packVal(docs[i])));
     parts.push('],"files":[');
-    if (full) { const fs = await idbAll('files'); for (let i = 0; i < fs.length; i++) parts.push((i ? ',' : '') + JSON.stringify(await packVal(fs[i]))); }
+    if (full) { const fs = (await idbAll('files')).filter(f => ids.has(f.id)); for (let i = 0; i < fs.length; i++) parts.push((i ? ',' : '') + JSON.stringify(await packVal(fs[i]))); }
     parts.push('],"images":[');
-    if (full) { const im = await idbAll('images'); for (let i = 0; i < im.length; i++) parts.push((i ? ',' : '') + JSON.stringify(await packVal(im[i]))); }
+    if (full) { const im = (await idbAll('images')).filter(x => ids.has(x.docId)); for (let i = 0; i < im.length; i++) parts.push((i ? ',' : '') + JSON.stringify(await packVal(im[i]))); }
     parts.push(']}');
     const blob = new Blob(parts, { type: 'application/json' });
-    const d = new Date(), name = `leitor-backup-${d.getFullYear()}-${pad2(d.getMonth() + 1)}-${pad2(d.getDate())}.json`;
+    const d = new Date(), tag = cols ? '-' + [...cols].map(c => c.split('›').pop().trim()).join('-').replace(/[^\wÀ-ú-]+/g, '_').slice(0, 40) : '';
+    const name = `leitor-backup${tag}-${d.getFullYear()}-${pad2(d.getMonth() + 1)}-${pad2(d.getDate())}.json`;
     const mb = (blob.size / 1048576).toFixed(1);
     const dl = window.claude?.use ? await window.claude.use('downloads').catch(() => null) : null;
     if (dl) {
@@ -5187,9 +5281,17 @@ ${t.text}
     let data; try { data = JSON.parse(await file.text()); } catch (_) { bkpStatus('Este arquivo não é um backup válido do Leitor.', true); return; }
     if (data?.app !== 'leitor-estudo-ativo') { bkpStatus('Este arquivo não é um backup do Leitor de Estudo Ativo.', true); return; }
     const when = new Date(data.at).toLocaleString('pt-BR', { dateStyle: 'short', timeStyle: 'short' });
-    if (!confirm(`Restaurar o backup de ${when} com ${data.docs.length} arquivos?\n\nArquivos com o mesmo nome serão substituídos pela versão do backup; o cronograma, os flashcards, o caderno de erros e o progresso passam a ser os do backup. O que só existe neste aparelho continua aqui.`)) { bkpStatus(''); return; }
+    const scopeTxt = Array.isArray(data.scope) ? ` das pastas ${data.scope.join(', ')}` : '';
+    if (!confirm(`Restaurar o backup${scopeTxt} de ${when} com ${data.docs.length} arquivos?\n\nArquivos com o mesmo nome serão substituídos pela versão do backup; o cronograma, os flashcards, o caderno de erros e o progresso passam a ser os do backup. O que só existe neste aparelho continua aqui.`)) { bkpStatus(''); return; }
     bkpStatus('Restaurando…');
-    for (const [k, v] of Object.entries(data.settings || {})) try { localStorage.setItem(k, v); } catch (_) {}
+    const bm = data.libMeta || (() => { try { return JSON.parse(data.settings?.['leitor-ativo-lib-meta'] || '{}'); } catch (_) { return {}; } })();
+    for (const [k, v] of Object.entries(data.settings || {})) if (k !== 'leitor-ativo-lib-meta') try { localStorage.setItem(k, v); } catch (_) {}
+    // Biblioteca: junta posições, pastas e ordem do backup com as deste aparelho.
+    const lm = lib.meta;
+    lm.pos = { ...(lm.pos || {}), ...(bm.pos || {}) }; lm.done = { ...(lm.done || {}), ...(bm.done || {}) };
+    lm.cols = [...new Set([...(lm.cols || []), ...(bm.cols || [])])];
+    lm.order = [...new Set([...(lib.docs.map(d => d.id)), ...(bm.order || [])])];
+    try { localStorage.setItem('leitor-ativo-lib-meta', JSON.stringify(lm)); } catch (_) {}
     for (const d of data.docs || []) await libDb.put(await unpackVal(d));
     for (const f of data.files || []) await libDb.putFile(await unpackVal(f));
     for (const im of data.images || []) await libDb.putImage(await unpackVal(im));
