@@ -16,7 +16,7 @@
   <meta name="mobile-web-app-capable" content="yes">
   <meta name="apple-mobile-web-app-title" content="Leitor Ativo">
   <meta name="apple-mobile-web-app-status-bar-style" content="default">
-  <title>Leitor de Estudo Ativo • Versão 7.7</title>
+  <title>Leitor de Estudo Ativo • Versão 7.8</title>
   <!-- PDF.js (módulo moderno) é carregado somente ao abrir PDFs. Biblioteca e worker usam a mesma versão. -->
   <style>
     :root {
@@ -418,6 +418,7 @@
     .ask-box { background: var(--surface); color: var(--text); border-radius: 16px; padding: 16px 18px; width: min(440px, 100%); box-shadow: 0 20px 60px rgba(0,0,0,.35); }
     .ask-box p { margin: 0 0 10px; line-height: 1.45; }
     .book .ask-box { background: var(--bk-bg); color: var(--bk-fg); }
+    .lib-colsort { justify-self: start; margin: 2px 0 6px; padding: 4px 10px; font-size: .8rem; border-radius: 999px; }
     .lib-arts { display: flex; flex-wrap: wrap; gap: 4px; padding: 0 8px 4px; }
     .lib-art { font-size: .74rem; padding: 2px 8px; border-radius: 999px; border: 1px solid var(--border); background: var(--surface); }
     .lib-item[data-from] { margin-left: 14px; }
@@ -500,7 +501,7 @@
 <main>
   <header class="header">
     <div>
-      <div class="eyebrow">Estudo com áudio • v7.7</div>
+      <div class="eyebrow">Estudo com áudio • v7.8</div>
       <h1>Leitor de Estudo Ativo</h1>
       <p class="subtitle">Ouça, acompanhe a frase em destaque e retome de onde quiser.</p>
     </div>
@@ -3099,26 +3100,22 @@ ${text}
   const sortKey = name => String(name || '').replace(/^[^\p{L}\p{N}]+/u, '').trim();
   const cmpName = (a, b) => sortKey(a).localeCompare(sortKey(b), 'pt-BR', { numeric: true, sensitivity: 'base' });
   let libUndo = null;
-  function libSortAZ() {
+  // onlyCol: ordena só os arquivos dessa pasta; sem ela, ordena as pastas e os arquivos de todas.
+  function libSortAZ(onlyCol) {
     libUndo = { order: lib.docs.map(d => d.id), cols: [...libCols()] };
-    const cols = libCols().slice().sort((a, b) => a === COL_DEFAULT ? -1 : b === COL_DEFAULT ? 1 : cmpName(a, b));
+    const cols = onlyCol ? libCols() : libCols().slice().sort((a, b) => a === COL_DEFAULT ? -1 : b === COL_DEFAULT ? 1 : cmpName(a, b));
     const out = [];
     for (const c of cols) {
       const inCol = lib.docs.filter(d => colOf(d) === c);
-      const ids = new Set(inCol.map(d => d.id));
-      // podcasts e histórias continuam logo abaixo do arquivo de origem
-      const roots = inCol.filter(d => !(d.fromId && ids.has(d.fromId))).sort((a, b) => cmpName(a.name, b.name));
-      const kids = id => inCol.filter(d => d.fromId === id).sort((a, b) => cmpName(a.name, b.name));
-      const walk = d => { out.push(d); kids(d.id).forEach(walk); };
-      roots.forEach(walk);
+      out.push(...(!onlyCol || c === onlyCol ? inCol.slice().sort((a, b) => cmpName(a.name, b.name)) : inCol));
     }
     lib.docs = out.concat(lib.docs.filter(d => !out.includes(d)));
     lib.meta.cols = cols;
     libSaveMeta(true); libRender(true);
     $('libSortUndo').hidden = false;
-    status('Pastas e arquivos em ordem alfabética. Toque em ↶ Desfazer para voltar à ordem anterior.');
+    status(onlyCol ? `Arquivos de “${onlyCol}” em ordem alfabética. ↶ Desfazer volta à ordem anterior.` : 'Pastas e arquivos em ordem alfabética. Toque em ↶ Desfazer para voltar à ordem anterior.');
   }
-  $('libSortAZ').addEventListener('click', libSortAZ);
+  $('libSortAZ').addEventListener('click', () => libSortAZ());
   $('libSortUndo').addEventListener('click', () => {
     if (!libUndo) return;
     const pos = new Map(libUndo.order.map((id, i) => [id, i]));
@@ -3147,6 +3144,11 @@ ${text}
       if (open) {
         const sub = document.createElement('ol'); sub.className = 'lib-sub';
         const docs = lib.docs.filter(d => colOf(d) === col);
+        if (docs.length > 1) {
+          const az = Object.assign(document.createElement('button'), { type: 'button', className: 'lib-colsort', textContent: '🔤 Ordenar esta pasta de A a Z' });
+          az.addEventListener('click', () => libSortAZ(col));
+          sub.append(az);
+        }
         docs.forEach(d => sub.append(libItem(d, true)));
         if (!docs.length) sub.append(Object.assign(document.createElement('li'), { className: 'hint', textContent: 'Pasta vazia: use ＋ Arquivos ou 📁 Pasta com ela aberta.' }));
         const delAll = document.createElement('button'); delAll.type = 'button'; delAll.className = 'lib-delall';
