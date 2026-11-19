@@ -16,7 +16,7 @@
   <meta name="mobile-web-app-capable" content="yes">
   <meta name="apple-mobile-web-app-title" content="Leitor Ativo">
   <meta name="apple-mobile-web-app-status-bar-style" content="default">
-  <title>Leitor de Estudo Ativo • Versão 7.6</title>
+  <title>Leitor de Estudo Ativo • Versão 7.7</title>
   <!-- PDF.js (módulo moderno) é carregado somente ao abrir PDFs. Biblioteca e worker usam a mesma versão. -->
   <style>
     :root {
@@ -488,6 +488,10 @@
   </div>
   <input type="file" id="folderInput" class="file-input-hidden" multiple webkitdirectory directory aria-hidden="true" tabindex="-1">
   <button type="button" id="libEdital" class="lib-add">📚 Conteúdo do edital TCE-SP</button>
+  <div class="lib-row lib-sort">
+    <button type="button" id="libSortAZ" class="lib-add" title="Coloca as pastas e os arquivos em ordem alfabética">🔤 Ordem A–Z</button>
+    <button type="button" id="libSortUndo" class="lib-add" hidden>↶ Desfazer</button>
+  </div>
   <label class="toggle lib-auto"><input type="checkbox" id="libAuto" checked> Ao terminar, seguir para o próximo</label>
   <ol id="libList" class="lib-list"></ol>
   <p id="libEmpty" class="hint">Nenhum arquivo ainda. Suba uma pasta (cada subpasta vira uma matéria) ou vários PDFs: eles ficam guardados aqui e cada matéria é preparada quando você toca nela.</p>
@@ -496,7 +500,7 @@
 <main>
   <header class="header">
     <div>
-      <div class="eyebrow">Estudo com áudio • v7.6</div>
+      <div class="eyebrow">Estudo com áudio • v7.7</div>
       <h1>Leitor de Estudo Ativo</h1>
       <p class="subtitle">Ouça, acompanhe a frase em destaque e retome de onde quiser.</p>
     </div>
@@ -3090,6 +3094,39 @@ ${text}
     for (const pod of lib.docs.filter(d => d.fromId === doc.id)) out.push({ label: pod.kind === 'HIST' ? '📖 História' : '🎧 Podcast', title: pod.name, open: () => libSwitch(pod.id, { autoplay: true }) });
     return out;
   }
+
+  // ---------- 🔤 Ordem alfabética (pastas e arquivos), com desfazer ----------
+  const sortKey = name => String(name || '').replace(/^[^\p{L}\p{N}]+/u, '').trim();
+  const cmpName = (a, b) => sortKey(a).localeCompare(sortKey(b), 'pt-BR', { numeric: true, sensitivity: 'base' });
+  let libUndo = null;
+  function libSortAZ() {
+    libUndo = { order: lib.docs.map(d => d.id), cols: [...libCols()] };
+    const cols = libCols().slice().sort((a, b) => a === COL_DEFAULT ? -1 : b === COL_DEFAULT ? 1 : cmpName(a, b));
+    const out = [];
+    for (const c of cols) {
+      const inCol = lib.docs.filter(d => colOf(d) === c);
+      const ids = new Set(inCol.map(d => d.id));
+      // podcasts e histórias continuam logo abaixo do arquivo de origem
+      const roots = inCol.filter(d => !(d.fromId && ids.has(d.fromId))).sort((a, b) => cmpName(a.name, b.name));
+      const kids = id => inCol.filter(d => d.fromId === id).sort((a, b) => cmpName(a.name, b.name));
+      const walk = d => { out.push(d); kids(d.id).forEach(walk); };
+      roots.forEach(walk);
+    }
+    lib.docs = out.concat(lib.docs.filter(d => !out.includes(d)));
+    lib.meta.cols = cols;
+    libSaveMeta(true); libRender(true);
+    $('libSortUndo').hidden = false;
+    status('Pastas e arquivos em ordem alfabética. Toque em ↶ Desfazer para voltar à ordem anterior.');
+  }
+  $('libSortAZ').addEventListener('click', libSortAZ);
+  $('libSortUndo').addEventListener('click', () => {
+    if (!libUndo) return;
+    const pos = new Map(libUndo.order.map((id, i) => [id, i]));
+    lib.docs.sort((a, b) => (pos.get(a.id) ?? 1e9) - (pos.get(b.id) ?? 1e9));
+    lib.meta.cols = libUndo.cols; libUndo = null;
+    libSaveMeta(true); libRender(true);
+    $('libSortUndo').hidden = true; status('Ordem anterior restaurada.');
+  });
   function libRender(now = false) {
     // Durante a leitura a lista é atualizada no máximo uma vez por segundo.
     if (!now && Date.now() - lib.renderAt < 1000) {
