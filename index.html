@@ -16,7 +16,7 @@
   <meta name="mobile-web-app-capable" content="yes">
   <meta name="apple-mobile-web-app-title" content="Leitor Ativo">
   <meta name="apple-mobile-web-app-status-bar-style" content="default">
-  <title>Leitor de Estudo Ativo • Versão 6.5</title>
+  <title>Leitor de Estudo Ativo • Versão 6.6</title>
   <!-- PDF.js (módulo moderno) é carregado somente ao abrir PDFs. Biblioteca e worker usam a mesma versão. -->
   <style>
     :root {
@@ -359,6 +359,14 @@
     .lib-now { color: var(--primary); font-weight: 800; }
     .lib-bar { height: 4px; margin-top: 6px; border-radius: 4px; overflow: hidden; background: var(--border); }
     .lib-bar > div { height: 100%; background: var(--primary); }
+    .lib-grip { cursor: grab; touch-action: none; user-select: none; font-size: 1rem !important; color: var(--muted); }
+    .lib-actions .lib-grip { margin-right: auto; }
+    .lib-ggrip { border: 0; background: transparent; padding: 4px 6px; flex: 0 0 auto; }
+    .lib-ghost { position: fixed; z-index: 2000; pointer-events: none; opacity: .9; box-shadow: 0 12px 30px rgba(0,0,0,.25); background: var(--surface); border-radius: 10px; list-style: none; }
+    .lib-dragging { opacity: .35; }
+    .drop-before { box-shadow: 0 -3px 0 0 var(--primary); }
+    .drop-into { outline: 2px dashed var(--primary); outline-offset: 2px; border-radius: 8px; }
+    .lib-movesel { width: 100%; padding: 6px 8px; border: 1px solid var(--border); border-radius: 8px; background: var(--surface); color: var(--text); font: inherit; font-size: .85rem; }
     .lib-actions { display: flex; justify-content: flex-end; gap: 2px; padding: 0 6px 6px; }
     .lib-actions button { padding: 3px 9px; font-size: .78rem; border-color: transparent; background: transparent; }
     .lib-actions button.confirm { color: #b42318; border-color: #b42318; }
@@ -432,7 +440,7 @@
 <main>
   <header class="header">
     <div>
-      <div class="eyebrow">Estudo com áudio • v6.5</div>
+      <div class="eyebrow">Estudo com áudio • v6.6</div>
       <h1>Leitor de Estudo Ativo</h1>
       <p class="subtitle">Ouça, acompanhe a frase em destaque e retome de onde quiser.</p>
     </div>
@@ -2831,8 +2839,10 @@ ${text}
     libSaveMeta(true); libRender(true);
   }
   function libMove(id, delta) {
-    const i = lib.docs.findIndex(d => d.id === id), j = i + delta;
-    if (i < 0 || j < 0 || j >= lib.docs.length) return;
+    const i = lib.docs.findIndex(d => d.id === id); if (i < 0) return;
+    // troca com o vizinho da MESMA pasta
+    let j = i + delta; while (j >= 0 && j < lib.docs.length && colOf(lib.docs[j]) !== colOf(lib.docs[i])) j += delta;
+    if (j < 0 || j >= lib.docs.length) return;
     [lib.docs[i], lib.docs[j]] = [lib.docs[j], lib.docs[i]];
     libSaveMeta(true); libRender(true);
   }
@@ -2843,6 +2853,7 @@ ${text}
     const pct = done ? 100 : Math.min(100, Math.round(pos / total * 100));
     const li = document.createElement('li');
     li.className = 'lib-item' + (active ? ' active' : '') + (doc.pending ? ' pending' : '');
+    if (withActions) li.dataset.id = doc.id;
     const open = document.createElement('button');
     open.type = 'button'; open.className = 'lib-open';
     open.setAttribute('aria-current', active ? 'true' : 'false');
@@ -2863,6 +2874,9 @@ ${text}
     if (withActions) {
       const actions = document.createElement('div'); actions.className = 'lib-actions';
       const mk = (text, label, fn) => { const b = document.createElement('button'); b.type = 'button'; b.textContent = text; b.setAttribute('aria-label', label); b.title = label; b.addEventListener('click', fn); actions.append(b); return b; };
+      const grip = mk('⠿', `Arrastar “${doc.name}” para outra posição ou pasta`, () => {}); grip.className = 'lib-grip';
+      grip.addEventListener('pointerdown', e => libDragStart(e, 'doc', doc.id, li));
+      mk('📂', `Mover “${doc.name}” para outra pasta`, () => libMoveMenu(doc, actions));
       mk('↑', `Subir “${doc.name}” na lista`, () => libMove(doc.id, -1));
       mk('↓', `Descer “${doc.name}” na lista`, () => libMove(doc.id, 1));
       const del = mk('✕', `Remover “${doc.name}” da lista`, () => {
@@ -2877,6 +2891,71 @@ ${text}
     }
     return li;
   }
+  // ---------- Arrastar para reorganizar: arquivo para outra posição ou outra pasta; pasta para outra posição ----------
+  function libPlaceDoc(id, target) {
+    const doc = libDoc(id); if (!doc) return;
+    const from = colOf(doc);
+    lib.docs = lib.docs.filter(d => d.id !== id);
+    let i;
+    if (target.beforeId) { const t = libDoc(target.beforeId); doc.col = colOf(t); i = lib.docs.indexOf(t); }
+    else { doc.col = target.col; const last = lib.docs.map(colOf).lastIndexOf(target.col); i = last < 0 ? lib.docs.length : last + 1; }
+    lib.docs.splice(i, 0, doc);
+    if (doc.col !== from) { libDb.put(doc); lib.meta.open[doc.col] = true; }
+    libSaveMeta(true); libRender(true);
+    status(doc.col !== from ? `“${doc.name}” movido para ${doc.col}.` : `“${doc.name}” reposicionado.`);
+  }
+  function libPlaceCol(col, beforeCol) {
+    const cols = libCols().filter(c => c !== col);
+    const i = beforeCol ? cols.indexOf(beforeCol) : cols.length;
+    cols.splice(i < 0 ? cols.length : i, 0, col);
+    lib.meta.cols = cols;
+    // a ordem dos arquivos acompanha a ordem das pastas
+    lib.docs = cols.flatMap(c => lib.docs.filter(d => colOf(d) === c));
+    libSaveMeta(true); libRender(true);
+  }
+  function libDragStart(ev, kind, key, srcEl) {
+    if (ev.button > 0) return;
+    ev.preventDefault();
+    const box = srcEl.getBoundingClientRect();
+    const ghost = srcEl.cloneNode(true); ghost.classList.add('lib-ghost');
+    Object.assign(ghost.style, { width: box.width + 'px', left: box.left + 'px', top: box.top + 'px' });
+    document.body.append(ghost); srcEl.classList.add('lib-dragging');
+    const dy = ev.clientY - box.top; let mark = null, drop = null, scrollV = 0, raf = 0;
+    const clear = () => { mark?.classList.remove('drop-before', 'drop-into', 'drop-end'); mark = null; drop = null; };
+    const scrollLoop = () => { if (scrollV) { lib.panel.scrollTop += scrollV; raf = requestAnimationFrame(scrollLoop); } else raf = 0; };
+    const move = e => {
+      ghost.style.top = (e.clientY - dy) + 'px';
+      const pr = lib.panel.getBoundingClientRect();
+      scrollV = e.clientY < pr.top + 60 ? -8 : e.clientY > pr.bottom - 60 ? 8 : 0;
+      if (scrollV && !raf) raf = requestAnimationFrame(scrollLoop);
+      const under = document.elementFromPoint(e.clientX, e.clientY);
+      clear();
+      if (kind === 'doc') {
+        const item = under?.closest('#libList .lib-item[data-id]');
+        const group = under?.closest('#libList .lib-group');
+        if (item && item.dataset.id !== key) { mark = item; mark.classList.add('drop-before'); drop = { beforeId: item.dataset.id }; }
+        else if (group && !item) { mark = group.querySelector('.lib-ghead'); mark.classList.add('drop-into'); drop = { col: group.dataset.col }; }
+      } else {
+        const group = under?.closest('#libList .lib-group');
+        if (group && group.dataset.col !== key) { mark = group.querySelector('.lib-ghead'); mark.classList.add('drop-before'); drop = { beforeCol: group.dataset.col }; }
+      }
+    };
+    const end = () => {
+      document.removeEventListener('pointermove', move); document.removeEventListener('pointerup', end); document.removeEventListener('pointercancel', end);
+      scrollV = 0; ghost.remove(); srcEl.classList.remove('lib-dragging');
+      const d = drop; clear();
+      if (!d) return;
+      if (kind === 'doc') libPlaceDoc(key, d); else libPlaceCol(key, d.beforeCol);
+    };
+    document.addEventListener('pointermove', move); document.addEventListener('pointerup', end); document.addEventListener('pointercancel', end);
+  }
+  function libMoveMenu(doc, actions) {
+    const sel = el('select', { 'aria-label': `Mover “${doc.name}” para a pasta`, class: 'lib-movesel' },
+      el('option', { value: '', text: '📂 Mover para…' }), ...libCols().filter(c => c !== colOf(doc)).map(c => el('option', { value: c, text: c })));
+    sel.addEventListener('change', () => { if (sel.value) libPlaceDoc(doc.id, { col: sel.value }); });
+    sel.addEventListener('blur', () => { if (sel.isConnected) libRender(true); });
+    actions.replaceChildren(sel); sel.focus();
+  }
   function libRender(now = false) {
     // Durante a leitura a lista é atualizada no máximo uma vez por segundo.
     if (!now && Date.now() - lib.renderAt < 1000) {
@@ -2888,8 +2967,12 @@ ${text}
     const nodes = [];
     for (const col of libCols()) {
       const open = !!lib.meta.open[col];
-      const g = document.createElement('li'); g.className = 'lib-group' + (open ? ' open' : '');
-      g.append(libGroupHead(col, open));
+      const g = document.createElement('li'); g.className = 'lib-group' + (open ? ' open' : ''); g.dataset.col = col;
+      const gh = libGroupHead(col, open);
+      const gg = Object.assign(document.createElement('button'), { type: 'button', className: 'lib-grip lib-ggrip', textContent: '⠿', title: 'Arrastar a pasta para outra posição' });
+      gg.setAttribute('aria-label', `Arrastar a pasta ${col}`);
+      gg.addEventListener('pointerdown', e => libDragStart(e, 'col', col, g));
+      gh.prepend(gg); g.append(gh);
       if (open) {
         const sub = document.createElement('ol'); sub.className = 'lib-sub';
         const docs = lib.docs.filter(d => colOf(d) === col);
