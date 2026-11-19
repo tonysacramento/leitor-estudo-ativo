@@ -16,7 +16,7 @@
   <meta name="mobile-web-app-capable" content="yes">
   <meta name="apple-mobile-web-app-title" content="Leitor Ativo">
   <meta name="apple-mobile-web-app-status-bar-style" content="default">
-  <title>Leitor de Estudo Ativo • Versão 6.4</title>
+  <title>Leitor de Estudo Ativo • Versão 6.5</title>
   <!-- PDF.js (módulo moderno) é carregado somente ao abrir PDFs. Biblioteca e worker usam a mesma versão. -->
   <style>
     :root {
@@ -315,7 +315,9 @@
     .library.open { transform: none; }
     .lib-backdrop { position: fixed; inset: 0; z-index: 899; background: rgba(0, 0, 0, .35); }
     .lib-backdrop[hidden] { display: none; }
-    .bkp { order: 99; margin-top: 14px; padding-top: 12px; border-top: 1px solid var(--border); display: grid; gap: 6px; }
+    .bkp { border: 1px solid var(--border); border-radius: 10px; padding: 8px 10px; }
+    .bkp[open] { display: grid; gap: 6px; }
+    .bkp summary { cursor: pointer; font-weight: 700; }
     .bkp p { margin: 0; }
     #bkpStatus.error, #gdStatus.error { color: #b3261e; }
     .gd { display: grid; gap: 6px; margin-top: 10px; padding-top: 10px; border-top: 1px dashed var(--border); }
@@ -390,20 +392,8 @@
 <aside id="library" class="library" aria-label="Arquivos de leitura">
   <div class="lib-head"><strong>📚 Biblioteca</strong><button type="button" id="libClose" class="lib-close" aria-label="Fechar a lista">✕</button></div>
   <p class="hint lib-dest" id="libDest"></p>
-  <div class="lib-row">
-    <button type="button" id="libAdd" class="primary lib-add">＋ Arquivos</button>
-    <button type="button" id="libFolder" class="lib-add" title="Sobe uma pasta inteira; cada subpasta vira uma matéria">📁 Pasta</button>
-  </div>
-  <div class="lib-row">
-    <input type="text" id="libNewCol" placeholder="Nova matéria (ex.: TCE-SP › Direito)" aria-label="Nome da nova matéria">
-    <button type="button" id="libNewColBtn" aria-label="Criar matéria">＋</button>
-  </div>
-  <input type="file" id="folderInput" class="file-input-hidden" multiple webkitdirectory directory aria-hidden="true" tabindex="-1">
-  <button type="button" id="libEdital" class="lib-add">📚 Conteúdo do edital TCE-SP</button>
-  <label class="toggle lib-auto"><input type="checkbox" id="libAuto" checked> Ao terminar, seguir para o próximo</label>
-  <ol id="libList" class="lib-list"></ol>
-  <div class="bkp" aria-label="Backup">
-    <strong>💾 Levar para outro aparelho</strong>
+  <details class="bkp" id="bkpBox" aria-label="Backup">
+    <summary>💾 Salvar / restaurar backup (celular ⇄ PC)</summary>
     <p class="hint">Salva arquivos, ponto de leitura, cronograma, flashcards e caderno de erros num arquivo. No outro aparelho, toque em Restaurar e escolha esse arquivo.</p>
     <label class="toggle"><input type="checkbox" id="bkpFull" checked> Incluir os PDFs originais e as imagens (arquivo maior)</label>
     <div class="lib-row"><button type="button" id="bkpExport" class="lib-add">💾 Salvar backup</button><button type="button" id="bkpImport" class="lib-add">📥 Restaurar backup</button></div>
@@ -423,14 +413,26 @@
       </div>
       <p class="hint" id="gdStatus" role="status"></p>
     </div>
+  </details>
+  <div class="lib-row">
+    <button type="button" id="libAdd" class="primary lib-add">＋ Arquivos</button>
+    <button type="button" id="libFolder" class="lib-add" title="Sobe uma pasta inteira; cada subpasta vira uma matéria">📁 Pasta</button>
   </div>
+  <div class="lib-row">
+    <input type="text" id="libNewCol" placeholder="Nova matéria (ex.: TCE-SP › Direito)" aria-label="Nome da nova matéria">
+    <button type="button" id="libNewColBtn" aria-label="Criar matéria">＋</button>
+  </div>
+  <input type="file" id="folderInput" class="file-input-hidden" multiple webkitdirectory directory aria-hidden="true" tabindex="-1">
+  <button type="button" id="libEdital" class="lib-add">📚 Conteúdo do edital TCE-SP</button>
+  <label class="toggle lib-auto"><input type="checkbox" id="libAuto" checked> Ao terminar, seguir para o próximo</label>
+  <ol id="libList" class="lib-list"></ol>
   <p id="libEmpty" class="hint">Nenhum arquivo ainda. Suba uma pasta (cada subpasta vira uma matéria) ou vários PDFs: eles ficam guardados aqui e cada matéria é preparada quando você toca nela.</p>
 </aside>
 <div id="libBackdrop" class="lib-backdrop" hidden></div>
 <main>
   <header class="header">
     <div>
-      <div class="eyebrow">Estudo com áudio • v6.4</div>
+      <div class="eyebrow">Estudo com áudio • v6.5</div>
       <h1>Leitor de Estudo Ativo</h1>
       <p class="subtitle">Ouça, acompanhe a frase em destaque e retome de onde quiser.</p>
     </div>
