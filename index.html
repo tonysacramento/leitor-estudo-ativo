@@ -16,7 +16,7 @@
   <meta name="mobile-web-app-capable" content="yes">
   <meta name="apple-mobile-web-app-title" content="Leitor Ativo">
   <meta name="apple-mobile-web-app-status-bar-style" content="default">
-  <title>Leitor de Estudo Ativo • Versão 7.1</title>
+  <title>Leitor de Estudo Ativo • Versão 7.2</title>
   <!-- PDF.js (módulo moderno) é carregado somente ao abrir PDFs. Biblioteca e worker usam a mesma versão. -->
   <style>
     :root {
@@ -489,7 +489,7 @@
 <main>
   <header class="header">
     <div>
-      <div class="eyebrow">Estudo com áudio • v7.1</div>
+      <div class="eyebrow">Estudo com áudio • v7.2</div>
       <h1>Leitor de Estudo Ativo</h1>
       <p class="subtitle">Ouça, acompanhe a frase em destaque e retome de onde quiser.</p>
     </div>
@@ -2226,8 +2226,8 @@ ${text}
   const gemEls = { box: $('gemBox'), key: $('gemKey'), save: $('gemSave'), model: $('gemModel'), remove: $('gemRemove'), status: $('gemStatus'), summary: $('gemSummary') };
   function gemError(res, body) {
     const msg = body?.error?.message || ('HTTP ' + res.status);
-    if (res.status === 429) return { code: 'rate_limited', message: 'limite gratuito do Gemini atingido; aguarde um minuto' };
-    if (res.status === 503 || res.status === 500 || res.status === 502 || /overloaded|high demand|unavailable/i.test(msg)) return { code: 'overloaded', message: 'Gemini sobrecarregado no momento' };
+    if (res.status === 429) return { code: 'rate_limited', detail: msg, message: /limit:\s*0\b|free_tier/i.test(msg) ? 'este modelo não tem cota gratuita para a sua chave' : 'limite gratuito do Gemini atingido; aguarde um minuto' };
+    if (res.status === 503 || res.status === 500 || res.status === 502 || /overloaded|high demand|unavailable/i.test(msg)) return { code: 'overloaded', detail: msg, message: 'Gemini sobrecarregado no momento' };
     if (res.status === 400 && /API key/i.test(msg)) return { code: 'bad_key', message: 'chave do Gemini inválida' };
     if (res.status === 403) return { code: 'forbidden', message: 'chave sem permissão para a API do Gemini' };
     return { code: 'gemini', message: msg };
@@ -2252,7 +2252,8 @@ ${text}
   async function gemSample(prompt, opts = {}) {
     const first = gem.model || gem.models[0]?.id;
     if (!gem.key || !first) throw { code: 'bad_key', message: 'configure a chave do Gemini' };
-    const order = [first, ...gem.models.map(m => m.id).filter(id => id !== first && !/-(preview|exp)/i.test(id))].slice(0, 4);
+    const rest = gem.models.map(m => m.id).filter(id => id !== first && !/-(preview|exp)/i.test(id));
+    const order = [first, ...rest.filter(id => /lite/i.test(id)).slice(0, 2), ...rest.filter(id => !/lite/i.test(id))].filter((v, i, a) => a.indexOf(v) === i).slice(0, 5);
     let last = null;
     for (let m = 0; m < order.length; m++) {
       const tries = m === 0 ? 2 : 1;
@@ -2269,7 +2270,8 @@ ${text}
         }
       }
     }
-    throw { code: last?.code === 'rate_limited' ? 'rate_limited' : 'overloaded', message: last?.code === 'rate_limited' ? 'limite gratuito do Gemini atingido; aguarde um minuto' : 'os servidores do Gemini estão sobrecarregados agora; tente de novo em alguns minutos' };
+    const why = last?.detail ? ` (Google: ${String(last.detail).split('\n')[0].slice(0, 160)})` : '';
+    throw { code: last?.code === 'rate_limited' ? 'rate_limited' : 'overloaded', message: (last?.code === 'rate_limited' ? last.message : 'os servidores do Gemini estão sobrecarregados agora; tente de novo em alguns minutos') + why };
   }
   async function gemCall(model, prompt, opts) {
     const res = await fetch(GEM_API + 'models/' + encodeURIComponent(model) + ':generateContent', {
