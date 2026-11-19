@@ -16,7 +16,7 @@
   <meta name="mobile-web-app-capable" content="yes">
   <meta name="apple-mobile-web-app-title" content="Leitor Ativo">
   <meta name="apple-mobile-web-app-status-bar-style" content="default">
-  <title>Leitor de Estudo Ativo • Versão 6.8</title>
+  <title>Leitor de Estudo Ativo • Versão 7.0</title>
   <!-- PDF.js (módulo moderno) é carregado somente ao abrir PDFs. Biblioteca e worker usam a mesma versão. -->
   <style>
     :root {
@@ -404,6 +404,13 @@
     .drop-before { box-shadow: 0 -3px 0 0 var(--primary); }
     .drop-into { outline: 2px dashed var(--primary); outline-offset: 2px; border-radius: 8px; }
     .lib-movesel { width: 100%; padding: 6px 8px; border: 1px solid var(--border); border-radius: 8px; background: var(--surface); color: var(--text); font: inherit; font-size: .85rem; }
+    .nv-tune { display: flex; flex-wrap: wrap; gap: 8px 14px; align-items: center; margin-top: 8px; font-size: .88rem; }
+    .nv-tune[hidden] { display: none; }
+    .nv-tune select { padding: 4px 6px; border: 1px solid var(--border); border-radius: 7px; background: var(--surface); color: var(--text); font: inherit; }
+    .rs-bar { position: fixed; z-index: 1250; left: 50%; transform: translateX(-50%); bottom: calc(env(safe-area-inset-bottom, 0px) + 14px); width: min(560px, calc(100vw - 20px)); display: flex; flex-wrap: wrap; gap: 8px; align-items: center; background: var(--surface); color: var(--text); border: 2px solid var(--primary); border-radius: 14px; padding: 10px 12px; box-shadow: 0 16px 40px rgba(0,0,0,.25); }
+    .rs-txt { flex: 1 1 200px; display: grid; font-size: .86rem; }
+    .rs-txt span { color: var(--muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .book .rs-bar { background: var(--bk-bg); color: var(--bk-fg); }
     .lib-arts { display: flex; flex-wrap: wrap; gap: 4px; padding: 0 8px 4px; }
     .lib-art { font-size: .74rem; padding: 2px 8px; border-radius: 999px; border: 1px solid var(--border); background: var(--surface); }
     .lib-item[data-from] { margin-left: 14px; }
@@ -482,7 +489,7 @@
 <main>
   <header class="header">
     <div>
-      <div class="eyebrow">Estudo com áudio • v6.8</div>
+      <div class="eyebrow">Estudo com áudio • v7.0</div>
       <h1>Leitor de Estudo Ativo</h1>
       <p class="subtitle">Ouça, acompanhe a frase em destaque e retome de onde quiser.</p>
     </div>
@@ -1297,7 +1304,7 @@
     state.finished = false;
     if (!isRepeat) state.repeatLeft = Number(els.repeatSelect.value) || 1;
     setActive(index);
-    const utterance = new SpeechSynthesisUtterance(state.blocks[index].text);
+    const utterance = new SpeechSynthesisUtterance(hooks.speakable ? hooks.speakable(state.blocks[index].text) : state.blocks[index].text);
     const voice = chosenVoice();
     if (voice) utterance.voice = voice;
     utterance.lang = voice?.lang || 'pt-BR';
@@ -3500,11 +3507,50 @@ ${text}
   imgToggle.addEventListener('change', applyImgToggle);
   applyImgToggle();
 
+  // ---------- Texto falado: abreviações e números de textos jurídicos lidos por extenso ----------
+  const ORD_M = ['', 'primeiro', 'segundo', 'terceiro', 'quarto', 'quinto', 'sexto', 'sétimo', 'oitavo', 'nono'];
+  const ORD_F = ['', 'primeira', 'segunda', 'terceira', 'quarta', 'quinta', 'sexta', 'sétima', 'oitava', 'nona'];
+  function romanToInt(r) {
+    const v = { I: 1, V: 5, X: 10, L: 50, C: 100, D: 500, M: 1000 }; let n = 0;
+    for (let i = 0; i < r.length; i++) { const a = v[r[i]], b = v[r[i + 1]] || 0; n += a < b ? -a : a; }
+    return n;
+  }
+  const KEEP_UPPER = new Set(['COBIT', 'ITIL', 'LIMPE', 'SIAFI', 'SICONV', 'SUS', 'INSS', 'IBGE', 'ONU', 'OAB', 'CNPJ', 'CPF', 'LOA', 'PIX', 'UNESCO', 'NASA', 'SEBRAE', 'SENAI', 'SESC', 'DETRAN', 'PETROBRAS', 'BACEN', 'PROCON']);
+  function speakable(text) {
+    let t = ' ' + text + ' ';
+    t = t.replace(/\bCF\s*\/\s*88\b/g, 'Constituição Federal de 1988')
+      .replace(/\bEC\b(?=\s*(n[º°o]\.?|\d))/g, 'Emenda Constitucional')
+      .replace(/§§/g, 'parágrafos ').replace(/§\s*único/gi, 'parágrafo único').replace(/§\s*/g, 'parágrafo ')
+      .replace(/\barts\.\s*/gi, 'artigos ').replace(/\bart\.\s*/gi, 'artigo ')
+      .replace(/\bincs?\.\s*/gi, 'inciso ').replace(/\bal\.\s*(?=[a-z]\b)/gi, 'alínea ')
+      .replace(/\bn[º°o]s?\.?\s*(?=\d)/gi, 'número ')
+      .replace(/\b(\d{1,3}(?:\.\d{3})+)\s*\/\s*(\d{2,4})\b/g, (_, n, y) => `${n.replace(/\./g, '')} de ${y}`)
+      .replace(/\b(\d{1,4})\s*\/\s*(\d{4})\b/g, '$1 de $2')
+      .replace(/\b(número|Lei|Decreto|Resolução|Portaria|Súmula)\s+(\d{1,5})\s*\/\s*(\d{2})\b/g, '$1 $2 de $3')
+      .replace(/\b([1-9])\s*[º°]/g, (_, d) => ORD_M[d]).replace(/\b([1-9])\s*ª/g, (_, d) => ORD_F[d])
+      .replace(/\b(\d+)\s*[º°ª]/g, '$1')
+      .replace(/\b(incisos?|capítulos?|títulos?|seção|seções|livro|anexo)\s+([IVXLC]+)\b/gi, (_, w, r) => `${w} ${romanToInt(r)}`)
+      .replace(/(^\s*|[\n.;:]\s*)([IVXLC]{1,6})\s*[-–—)]\s+/g, (_, p, r) => `${p}inciso ${romanToInt(r)}: `)
+      .replace(/\b(?=[IVX]{2,6}\b)(X{0,3})(IX|IV|V?I{0,3})\b/g, m => m ? String(romanToInt(m)) : m)
+      .replace(/R\$\s?([\d.]+(?:,\d{2})?)/g, (_, v) => `${v} reais`)
+      .replace(/(\d)\s?%/g, '$1 por cento')
+      .replace(/\betc\./gi, 'etcétera').replace(/\bp\.\s?ex\./gi, 'por exemplo').replace(/\bex\.:/gi, 'exemplo:').replace(/\bi\.e\./gi, 'isto é')
+      .replace(/\bSr\.(?=\s)/g, 'senhor').replace(/\bSra\.(?=\s)/g, 'senhora').replace(/\bDr\.(?=\s)/g, 'doutor').replace(/\bDra\.(?=\s)/g, 'doutora')
+      .replace(/\s*\/\s*(?=[A-Za-zÀ-ú])/g, ' barra ')
+      // siglas curtas soletradas (TCE-SP → T C E S P); siglas que se falam como palavra ficam
+      .replace(/\b[A-Z]{2,5}(?:-[A-Z]{2,3})?\b/g, s => s.split('-').map(p => KEEP_UPPER.has(p) || (p.length >= 4 && /[AEIOU]/.test(p) && /[AEIOU][^AEIOU]|[^AEIOU][AEIOU]/.test(p)) ? p.charAt(0) + p.slice(1).toLowerCase() : p.split('').join(' ')).join(' '))
+      .replace(/\s+/g, ' ');
+    return t.trim();
+  }
+  hooks.speakable = speakable;
+
   // ===================== Voz neural (gera áudio no aparelho; toca com a tela apagada) =====================
   // O modelo de voz é baixado uma vez (~60 MB), fica salvo no aparelho e funciona offline.
   const NV_HF = 'https://huggingface.co/diffusionstudio/piper-voices/resolve/main/';
   const NV_VOICES = {
-    faber: { label: 'Faber • masculina, mais natural', path: 'pt/pt_BR/faber/medium/pt_BR-faber-medium.onnx', mb: 63 },
+    faber: { label: 'Faber • masculina, clara', path: 'pt/pt_BR/faber/medium/pt_BR-faber-medium.onnx', mb: 63 },
+    cadu: { label: 'Cadu • masculina, nova', url: 'https://huggingface.co/rhasspy/piper-voices/resolve/main/pt/pt_BR/cadu/medium/pt_BR-cadu-medium.onnx', mb: 63 },
+    jeff: { label: 'Jeff • masculina, nova', url: 'https://huggingface.co/rhasspy/piper-voices/resolve/main/pt/pt_BR/jeff/medium/pt_BR-jeff-medium.onnx', mb: 63 },
     edresson: { label: 'Edresson • masculina, mais leve', path: 'pt/pt_BR/edresson/low/pt_BR-edresson-low.onnx', mb: 63 }
   };
   const NV_CDN = {
@@ -3545,7 +3591,11 @@ ${text}
       });
       return out;
     }
-    function wav(samples, rate) {
+    function wav(raw, rate) {
+      // pequena entrada/saída suave (sem estalos) e uma pausa natural no fim da frase
+      const fade = Math.floor(rate * 0.012), pause = Math.floor(rate * (T.pause ?? 0.18));
+      const samples = new Float32Array(raw.length + pause); samples.set(raw);
+      for (let i = 0; i < fade && i < raw.length; i++) { samples[i] *= i / fade; samples[raw.length - 1 - i] *= i / fade; }
       const n = samples.length, v = new DataView(new ArrayBuffer(44 + n * 2));
       const w = (o, s) => { for (let i = 0; i < s.length; i++) v.setUint8(o + i, s.charCodeAt(i)); };
       w(0, 'RIFF'); v.setUint32(4, 36 + n * 2, true); w(8, 'WAVE'); w(12, 'fmt '); v.setUint32(16, 16, true); v.setUint16(20, 1, true); v.setUint16(22, 1, true);
@@ -3555,11 +3605,11 @@ ${text}
       for (let i = 0, o = 44; i < n; i++, o += 2) { const s = Math.max(-1, Math.min(1, samples[i] * gain)); v.setInt16(o, s < 0 ? s * 32768 : s * 32767, true); }
       return v.buffer;
     }
-    let P;
+    let P, T = {};
     onmessage = async ({ data }) => {
       try {
         if (data.type === 'init') {
-          P = data.paths;
+          P = data.paths; T = data.tune || {};
           ort = ort || await import(P.ort);
           ort.env.wasm.wasmPaths = P.ortWasm; ort.env.wasm.numThreads = 1;
           phon = phon || await import(P.phon);
@@ -3568,6 +3618,7 @@ ${text}
           postMessage({ type: 'progress', got: 1, total: 0, stage: 'preparando' });
           session = await ort.InferenceSession.create(model);
           postMessage({ type: 'ready' });
+        } else if (data.type === 'tune') { T = data.tune || {};
         } else if (data.type === 'synth') {
           const ids = await phonemize(data.texts);
           for (let i = 0; i < data.texts.length; i++) {
@@ -3577,7 +3628,7 @@ ${text}
             const feeds = {
               input: new ort.Tensor('int64', BigInt64Array.from(p.map(BigInt)), [1, p.length]),
               input_lengths: new ort.Tensor('int64', BigInt64Array.from([BigInt(p.length)]), [1]),
-              scales: new ort.Tensor('float32', Float32Array.from([cfg.inference.noise_scale, cfg.inference.length_scale, cfg.inference.noise_w]), [3])
+              scales: new ort.Tensor('float32', Float32Array.from([cfg.inference.noise_scale * (T.expr || 1), cfg.inference.length_scale * (T.slow || 1), cfg.inference.noise_w * (T.expr || 1)]), [3])
             };
             if (Object.keys(cfg.speaker_id_map || {}).length) feeds.sid = new ort.Tensor('int64', BigInt64Array.from([0n]), [1]);
             const out = await session.run(feeds);
@@ -3629,8 +3680,39 @@ ${text}
       worker.onerror = e => { nvHint('A voz neural não é suportada neste navegador.'); reject(e); };
     });
     nv.ready.catch(() => {});
-    worker.postMessage({ type: 'init', paths: NV_CDN, model: NV_HF + NV_VOICES[voiceId].path });
+    worker.postMessage({ type: 'init', paths: NV_CDN, model: NV_VOICES[voiceId].url || NV_HF + NV_VOICES[voiceId].path, tune: nvTune() });
     return nv.ready;
+  }
+  function nvTune() { try { return JSON.parse(loadSetting('nv-tune', '{}')) || {}; } catch (_) { return {}; } }
+  function nvTuneUI() {
+    if ($('nvTune')) { $('nvTune').hidden = !usingNeural(); return; }
+    const t = nvTune();
+    const sel = (id, label, opts, val) => el('label', {}, label + ' ', Object.assign(el('select', { id }, ...opts.map(([v, txt]) => Object.assign(new Option(txt, v), { selected: String(val) === String(v) })))));
+    const box = el('div', { id: 'nvTune', class: 'nv-tune' },
+      sel('nvExpr', 'Entonação', [['0.8', 'Mais calma'], ['1', 'Normal'], ['1.25', 'Mais expressiva']], t.expr ?? 1),
+      sel('nvPause', 'Pausa entre frases', [['0.08', 'Curta'], ['0.18', 'Normal'], ['0.35', 'Longa']], t.pause ?? 0.18),
+      el('button', { type: 'button', id: 'nvSample', text: '▶ Ouvir amostra' }));
+    box.addEventListener('change', () => {
+      const tune = { expr: Number($('nvExpr').value), pause: Number($('nvPause').value) };
+      saveSetting('nv-tune', JSON.stringify(tune));
+      nv.worker?.postMessage({ type: 'tune', tune });
+      for (const [, u] of nv.cache) URL.revokeObjectURL(u); nv.cache.clear();
+    });
+    $('voiceHint').after(box);
+    box.querySelector('#nvSample').addEventListener('click', async () => {
+      const id = els.voiceSelect.value.slice(7);
+      $('nvSample').disabled = true;
+      try {
+        await nvInit(id);
+        const text = speakable('Conforme o art. 71 da CF/88, o controle externo é exercido pelo Congresso Nacional, com o auxílio do Tribunal de Contas da União. Vamos estudar?');
+        const key = nv.voice + '|amostra|' + text;
+        const p = new Promise((resolve, reject) => nv.waiting.set(key, { resolve, reject }));
+        nv.queue.push({ texts: [text], keys: [key] }); nvPump();
+        const a = new Audio(await p); a.play();
+      } catch (e) { nvHint('Não foi possível tocar a amostra: ' + (e?.message || e)); }
+      finally { $('nvSample').disabled = false; }
+    });
+    box.hidden = !usingNeural();
   }
   function nvPump() {
     if (nv.inflight || !nv.queue.length || !nv.readyOk) return;
@@ -3644,7 +3726,7 @@ ${text}
       const b = state.blocks[i]; if (!b) continue;
       const k = nvKey(b.text);
       if (nv.cache.has(k) || nv.waiting.has(k) || keys.includes(k)) continue;
-      texts.push(b.text); keys.push(k);
+      texts.push(speakable(b.text)); keys.push(k);
       let resolve, reject; const p = new Promise((a, b2) => { resolve = a; reject = b2; }); p.catch(() => {});
       nv.waiting.set(k, { promise: p, resolve, reject });
     }
@@ -3709,6 +3791,7 @@ ${text}
     els.voiceSelect.prepend(group);
     const saved = loadSetting('voice', '');
     if (saved.startsWith('neural:')) { els.voiceSelect.value = saved; nvInit(saved.slice(7)); }
+    nvTuneUI();
   }
   const baseVoicesHook = hooks.voices;
   hooks.voices = () => { baseVoicesHook?.(); nvAddVoices(); if (usingNeural() && nv.readyOk) nvHint('Voz neural pronta • funciona offline e continua com a tela apagada.'); };
@@ -3734,7 +3817,7 @@ ${text}
   };
   hooks.cancel = () => { base.cancel?.(); if (nv.active || nv.audio) { nv.active = false; nv.paused = false; try { nv.audio?.pause(); } catch (_) {} } };
   els.speedRange.addEventListener('input', () => { if (nv.audio) nv.audio.playbackRate = Number(els.speedRange.value) || 1; });
-  els.voiceSelect.addEventListener('change', () => { if (usingNeural()) nvInit(els.voiceSelect.value.slice(7)); });
+  els.voiceSelect.addEventListener('change', () => { if (usingNeural()) nvInit(els.voiceSelect.value.slice(7)); nvTuneUI(); });
   nvAddVoices();
 
   // Destaca “Usar questões do arquivo” quando o texto aberto parece ter questões.
@@ -5581,6 +5664,56 @@ ${t.text}
   // atalho dentro do livro
   $('bkComfort')?.addEventListener('click', () => { $('comfort').hidden = false; });
   cfApply();
+
+  // ===================== ▶ Continuar de onde parou (ao voltar para o app, aba ou ao reabrir) =====================
+  const rs = { awayAt: 0, wasPlaying: false };
+  function rsSave() {
+    if (!state.blocks.length) return;
+    saveSetting('resume', JSON.stringify({ docId: lib.activeId || null, index: state.index, at: Date.now(), book: !!bk.open, name: state.fileName || 'Texto de estudo', total: state.blocks.length, y: Math.round(window.scrollY) }));
+  }
+  const rsLoad = () => { try { return JSON.parse(loadSetting('resume', 'null')); } catch (_) { return null; } };
+  function rsBanner(r, why) {
+    if (!r || state.mode === 'playing') return;
+    const pct = r.total ? Math.round(r.index / r.total * 100) : 0;
+    const go = async () => {
+      bar.remove();
+      if (r.docId && r.docId !== lib.activeId && libDoc(r.docId)) await libSwitch(r.docId, { quiet: true });
+      const i = Math.min(r.index || 0, Math.max(0, state.blocks.length - 1));
+      if (r.book) openBookAt(i); else els.readerView.closest('section')?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+      playFrom(i);
+    };
+    const look = async () => {
+      bar.remove();
+      if (r.docId && r.docId !== lib.activeId && libDoc(r.docId)) await libSwitch(r.docId, { quiet: true });
+      const i = Math.min(r.index || 0, Math.max(0, state.blocks.length - 1));
+      if (r.book) openBookAt(i); else { setActive(i); els.readerView.querySelector('.active')?.scrollIntoView({ behavior: 'smooth', block: 'center' }); }
+    };
+    $('rsBar')?.remove();
+    const bar = el('div', { id: 'rsBar', class: 'rs-bar', role: 'status' },
+      el('div', { class: 'rs-txt' }, el('strong', { text: why }), el('span', { text: `${r.name} • frase ${(r.index || 0) + 1}${r.total ? ` de ${r.total} (${pct}%)` : ''}` })),
+      el('button', { type: 'button', class: 'primary', text: '▶ Continuar', onclick: go }),
+      el('button', { type: 'button', text: r.book ? '📖 Abrir' : '📍 Ver', onclick: look }),
+      el('button', { type: 'button', 'aria-label': 'Fechar', text: '✕', onclick: () => bar.remove() }));
+    (bk.open ? bk.root : document.body).append(bar);
+    clearTimeout(rsBanner.t); rsBanner.t = setTimeout(() => bar.remove(), 60000);
+  }
+  // guarda a posição sempre que a frase muda e ao sair
+  const rsPrevControls = hooks.controls;
+  hooks.controls = () => { rsPrevControls?.(); clearTimeout(rsSave.t); rsSave.t = setTimeout(rsSave, 800); };
+  document.addEventListener('visibilitychange', () => {
+    if (document.visibilityState === 'hidden') { rs.awayAt = Date.now(); rs.wasPlaying = state.mode === 'playing'; rsSave(); return; }
+    // voltou: se a leitura parou enquanto estava fora (ou nem estava tocando), oferece continuar
+    if (rs.awayAt && Date.now() - rs.awayAt > 4000 && state.mode !== 'playing' && state.blocks.length) {
+      rsBanner(rsLoad(), rs.wasPlaying ? 'A leitura parou enquanto você estava fora' : 'Bem-vindo de volta');
+    }
+    rs.awayAt = 0;
+  });
+  window.addEventListener('pagehide', rsSave);
+  // ao reabrir o app
+  setTimeout(() => {
+    const r = rsLoad();
+    if (r && r.index > 0 && Date.now() - r.at < 30 * 86400000 && (!r.docId || libDoc(r.docId))) rsBanner(r, 'Continuar de onde parou?');
+  }, 1800);
 
   progress(); controls();
   if (!hasSpeech) status('Este navegador não oferece síntese de voz; tente Chrome ou Edge atualizado.', true);
