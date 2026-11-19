@@ -16,7 +16,7 @@
   <meta name="mobile-web-app-capable" content="yes">
   <meta name="apple-mobile-web-app-title" content="Leitor Ativo">
   <meta name="apple-mobile-web-app-status-bar-style" content="default">
-  <title>Leitor de Estudo Ativo • Versão 7.2</title>
+  <title>Leitor de Estudo Ativo • Versão 7.3</title>
   <!-- PDF.js (módulo moderno) é carregado somente ao abrir PDFs. Biblioteca e worker usam a mesma versão. -->
   <style>
     :root {
@@ -411,6 +411,9 @@
     .rs-txt { flex: 1 1 200px; display: grid; font-size: .86rem; }
     .rs-txt span { color: var(--muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
     .book .rs-bar { background: var(--bk-bg); color: var(--bk-fg); }
+    .block.missed { border: 2px solid var(--primary); background: var(--active); }
+    .missed-list { display: grid; gap: 6px; margin: 6px 0; font-size: .9rem; }
+    .block.moved { opacity: .55; }
     .lib-arts { display: flex; flex-wrap: wrap; gap: 4px; padding: 0 8px 4px; }
     .lib-art { font-size: .74rem; padding: 2px 8px; border-radius: 999px; border: 1px solid var(--border); background: var(--surface); }
     .lib-item[data-from] { margin-left: 14px; }
@@ -489,7 +492,7 @@
 <main>
   <header class="header">
     <div>
-      <div class="eyebrow">Estudo com áudio • v7.2</div>
+      <div class="eyebrow">Estudo com áudio • v7.3</div>
       <h1>Leitor de Estudo Ativo</h1>
       <p class="subtitle">Ouça, acompanhe a frase em destaque e retome de onde quiser.</p>
     </div>
@@ -4894,6 +4897,82 @@ ${material}
     for (const blocks of Object.values(plan.days)) for (const b of blocks) if (b.docId === srcId) { b.podId = pod.id; hit = true; }
     if (hit) { edSave(); edRenderToday(); }
   };
+  // ---------- Dias anteriores: blocos sem “Feito” → pergunta e, se não estudou, replaneja ----------
+  const SPECIAL = ['revisão da semana', 'simulado', 'revisão final'];
+  const fmtDay = d => new Date(d + 'T12:00').toLocaleDateString('pt-BR', { weekday: 'short', day: '2-digit', month: '2-digit' });
+  function edMissed() {
+    const plan = ed.data.plan, today = isoDay(new Date()), out = [];
+    plan.asked ||= {};
+    for (const d of Object.keys(plan.days).sort()) {
+      if (d >= today) break;
+      if (plan.asked[d]) continue;
+      plan.days[d].forEach((b, i) => { if (!b.moved && !plan.done[d + '#' + i] && !SPECIAL.includes(b.tipo)) out.push({ d, i, b }); });
+    }
+    return out;
+  }
+  function edReschedule(missed) {
+    const plan = ed.data.plan, today = isoDay(new Date());
+    const future = Object.keys(plan.days).sort().filter(d => d >= today && d <= plan.exam);
+    if (!future.length) return { placed: 0, extra: missed.length };
+    const copies = missed.map(({ d, b }) => { b.moved = true; const { moved, movedTo, ...c } = b; return { ...c, movedFrom: d }; });
+    // Fixos: blocos já feitos e dias especiais (revisão, simulado) ficam onde estão; o resto anda para a frente.
+    const queue = [...copies], layout = [];
+    for (const d of future) {
+      const fixed = [], cap = plan.days[d].filter(b => !b.moved).length;
+      plan.days[d].forEach((b, i) => {
+        if (b.moved) return;
+        const done = plan.done[d + '#' + i];
+        if (done || SPECIAL.includes(b.tipo)) fixed.push({ ...b, _done: done });
+        else queue.push(b);
+      });
+      layout.push({ d, fixed, free: Math.max(0, cap - fixed.length) });
+    }
+    for (const L of layout) {
+      const take = queue.splice(0, L.free);
+      for (const k of Object.keys(plan.done)) if (k.startsWith(L.d + '#')) delete plan.done[k];
+      const blocks = [...L.fixed, ...take];
+      plan.days[L.d] = blocks.map(({ _done, ...b }) => b);
+      blocks.forEach((b, i) => { if (b._done) plan.done[L.d + '#' + i] = b._done; });
+    }
+    // Sobrou? Encaixa como bloco extra nos dias de estudo mais próximos da prova.
+    const extra = queue.length;
+    const studyDays = layout.filter(L => !plan.days[L.d].every(b => SPECIAL.includes(b.tipo))).map(L => L.d).reverse();
+    for (let k = 0; queue.length && studyDays.length; k++) plan.days[studyDays[k % studyDays.length]].push(queue.shift());
+    // Anota para onde cada bloco foi.
+    for (const { d, b } of missed) {
+      const to = future.find(f => plan.days[f].some(x => x.movedFrom === d && x.materia === b.materia && x.topicos.join() === b.topicos.join()));
+      if (to) b.movedTo = to;
+    }
+    return { placed: missed.length - extra, extra, first: missed[0]?.b.movedTo };
+  }
+  function edMissedCard(missed) {
+    const plan = ed.data.plan;
+    const checks = missed.map(m => Object.assign(el('input', { type: 'checkbox' }), { checked: false }));
+    const finish = studiedAll => {
+      const notStudied = [];
+      missed.forEach((m, k) => { if (studiedAll === true || (studiedAll === null && checks[k].checked)) plan.done[m.d + '#' + m.i] = Date.now(); else notStudied.push(m); });
+      for (const m of missed) plan.asked[m.d] = true;
+      let msg = '✓ Marcado como feito.';
+      if (notStudied.length) {
+        const r = edReschedule(notStudied);
+        msg = `↪ ${notStudied.length} ${notStudied.length === 1 ? 'bloco remarcado' : 'blocos remarcados'} a partir de hoje; o restante do cronograma andou para a frente.` + (r.extra ? ` ${r.extra} ${r.extra === 1 ? 'ficou' : 'ficaram'} como bloco extra perto da prova: se puder, aumente as horas por dia.` : '');
+      }
+      edSave(); edRenderToday(); edStatus(msg);
+    };
+    const days = [...new Set(missed.map(m => m.d))];
+    return el('div', { class: 'block missed' },
+      el('h4', { text: `📅 ${missed.length === 1 ? 'Ficou 1 bloco' : `Ficaram ${missed.length} blocos`} sem ✓ Feito ${days.length === 1 ? 'em ' + fmtDay(days[0]) : 'em dias anteriores'}` }),
+      el('p', { class: 'hint', text: 'Você estudou e esqueceu de marcar? Marque o que estudou. O que não estudou volta para o cronograma a partir de hoje.' }),
+      el('div', { class: 'missed-list' }, ...missed.map((m, k) => el('label', { class: 'toggle' }, checks[k], ` ${fmtDay(m.d)} • ${m.b.materia}${m.b.topicos?.[0] ? ' – ' + m.b.topicos[0] : ''} (${m.b.tipo})`))),
+      el('div', { class: 'q-actions' },
+        el('button', { type: 'button', class: 'primary', text: '✓ Sim, estudei tudo', onclick: () => finish(true) }),
+        el('button', { type: 'button', text: '↪ Não estudei: replanejar', onclick: () => finish(false) }),
+        el('button', { type: 'button', text: 'Salvar o que marquei', onclick: () => finish(null) })));
+  }
+  // Virou o dia com o app aberto: atualiza sozinho.
+  let edLastDay = isoDay(new Date());
+  setInterval(() => { const t = isoDay(new Date()); if (t !== edLastDay) { edLastDay = t; if (ed.data.plan) edRenderToday(); } }, 60000);
+  document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'visible') { const t = isoDay(new Date()); if (t !== edLastDay) { edLastDay = t; if (ed.data.plan) edRenderToday(); } } });
   function edRenderToday() {
     const plan = ed.data.plan, box = $('edToday');
     if (!plan) {
@@ -4902,11 +4981,12 @@ ${material}
     }
     const dates = Object.keys(plan.days).sort();
     const today = isoDay(new Date());
-    let view = ed.data.view || today;
+    // O dia escolhido com ← → vale só no mesmo dia; num novo dia, abre em hoje.
+    let view = ed.data.viewOn === today && ed.data.view ? ed.data.view : today;
     if (!plan.days[view]) view = dates.find(x => x >= view) || dates[dates.length - 1];
-    ed.data.view = view;
+    ed.data.view = view; ed.data.viewOn = today;
     const blocks = plan.days[view] || [];
-    const allBlocks = dates.reduce((a, x) => a + plan.days[x].length, 0);
+    const allBlocks = dates.reduce((a, x) => a + plan.days[x].filter(b => !b.moved).length, 0);
     const doneN = Object.keys(plan.done).length;
     const idx = dates.indexOf(view);
     const left = Math.max(0, Math.round((new Date(plan.exam + 'T12:00') - new Date(today + 'T12:00')) / DAY));
@@ -4918,15 +4998,19 @@ ${material}
     const card = el('div', { class: 'today' },
       el('div', { class: 'today-head' }, el('div', {},
         el('span', { class: 'tag', text: plan.vaga }),
-        el('h3', { style: 'margin:2px 0', text: (view === today ? 'Hoje • ' : '') + dt.toLocaleDateString('pt-BR', { weekday: 'long', day: '2-digit', month: 'long' }) }),
+        el('h3', { style: 'margin:2px 0', text: (view === today ? 'Hoje • ' : view < today ? 'Dia anterior • ' : '') + dt.toLocaleDateString('pt-BR', { weekday: 'long', day: '2-digit', month: 'long' }) }),
         el('span', { class: 'hint', text: `Dia ${idx + 1} de ${dates.length} • ${left} dias para a prova • ${Math.round(doneN / Math.max(1, allBlocks) * 100)}% do cronograma concluído` })), nav),
       el('div', { class: 'score-bar' }, el('div', { style: `width:${Math.round(doneN / Math.max(1, allBlocks) * 100)}%` })));
     if (view < dates[0] || !plan.days[view]) card.append(el('p', { class: 'hint', text: 'Sem estudo marcado para este dia.' }));
+    if (!plan.days[today] && view > today && view === dates.find(x => x >= today)) card.append(el('p', { class: 'hint', text: 'Hoje não tem estudo no cronograma: mostrando o próximo dia.' }));
+    const missed = edMissed(); if (missed.length) card.append(edMissedCard(missed));
     blocks.forEach((b, i) => {
       const key = view + '#' + i, done = !!plan.done[key];
+      if (b.moved) { card.append(el('div', { class: 'block moved' }, el('span', { class: 'tipo', text: `Bloco ${i + 1} • ${b.tipo}` }), el('h4', { text: b.materia }), el('p', { class: 'hint', text: `↪ Não estudado: remarcado${b.movedTo ? ' para ' + fmtDay(b.movedTo) : ''}.` }))); return; }
       const box2 = el('div', { class: 'block' + (done ? ' done' : '') },
         el('span', { class: 'tipo', text: `Bloco ${i + 1} • ${b.tipo}${b.grupo ? (b.grupo === 'especificos' ? ' • específica' : ' • geral') : ''}` }),
         el('h4', { text: b.materia }));
+      if (b.movedFrom) box2.append(el('p', { class: 'hint', style: 'margin:0', text: `↩ Remarcado de ${fmtDay(b.movedFrom)}` }));
       const ul = el('ul'); b.topicos.forEach(t => ul.append(el('li', { text: t }))); box2.append(ul);
       const acts = el('div', { class: 'q-actions' });
       const studyable = !['revisão da semana', 'simulado', 'revisão final'].includes(b.tipo);
