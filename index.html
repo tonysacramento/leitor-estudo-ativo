@@ -16,7 +16,7 @@
   <meta name="mobile-web-app-capable" content="yes">
   <meta name="apple-mobile-web-app-title" content="Leitor Ativo">
   <meta name="apple-mobile-web-app-status-bar-style" content="default">
-  <title>Leitor de Estudo Ativo • Versão 7.4</title>
+  <title>Leitor de Estudo Ativo • Versão 7.5</title>
   <!-- PDF.js (módulo moderno) é carregado somente ao abrir PDFs. Biblioteca e worker usam a mesma versão. -->
   <style>
     :root {
@@ -414,6 +414,10 @@
     .block.missed { border: 2px solid var(--primary); background: var(--active); }
     .missed-list { display: grid; gap: 6px; margin: 6px 0; font-size: .9rem; }
     .block.moved { opacity: .55; }
+    .ask-wrap { position: fixed; inset: 0; z-index: 2147483200; background: rgba(0,0,0,.45); display: grid; place-items: center; padding: 16px; }
+    .ask-box { background: var(--surface); color: var(--text); border-radius: 16px; padding: 16px 18px; width: min(440px, 100%); box-shadow: 0 20px 60px rgba(0,0,0,.35); }
+    .ask-box p { margin: 0 0 10px; line-height: 1.45; }
+    .book .ask-box { background: var(--bk-bg); color: var(--bk-fg); }
     .lib-arts { display: flex; flex-wrap: wrap; gap: 4px; padding: 0 8px 4px; }
     .lib-art { font-size: .74rem; padding: 2px 8px; border-radius: 999px; border: 1px solid var(--border); background: var(--surface); }
     .lib-item[data-from] { margin-left: 14px; }
@@ -492,7 +496,7 @@
 <main>
   <header class="header">
     <div>
-      <div class="eyebrow">Estudo com áudio • v7.4</div>
+      <div class="eyebrow">Estudo com áudio • v7.5</div>
       <h1>Leitor de Estudo Ativo</h1>
       <p class="subtitle">Ouça, acompanhe a frase em destaque e retome de onde quiser.</p>
     </div>
@@ -5422,6 +5426,22 @@ ${t.text}
     box.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
   }
 
+  // Confirmação dentro da página (a janela confirm() do navegador é bloqueada dentro do Claude).
+  function askConfirm(message, okText = 'Confirmar', cancelText = 'Cancelar') {
+    return new Promise(resolve => {
+      const done = v => { wrap.remove(); resolve(v); };
+      const wrap = el('div', { class: 'ask-wrap', role: 'dialog', 'aria-modal': 'true' },
+        el('div', { class: 'ask-box' },
+          ...String(message).split('\n\n').map(p => el('p', { text: p })),
+          el('div', { class: 'q-actions' },
+            el('button', { type: 'button', class: 'primary', text: okText, onclick: () => done(true) }),
+            el('button', { type: 'button', text: cancelText, onclick: () => done(false) }))));
+      wrap.addEventListener('click', e => { if (e.target === wrap) done(false); });
+      (bk.open ? bk.root : document.body).append(wrap);
+      wrap.querySelector('button.primary').focus();
+    });
+  }
+
   // ===================== 💾 Backup: levar tudo de um aparelho para outro =====================
   const blobToData = b => new Promise(r => { const fr = new FileReader(); fr.onload = () => r(fr.result); fr.onerror = () => r(null); fr.readAsDataURL(b); });
   async function packVal(v) {
@@ -5508,7 +5528,7 @@ ${t.text}
     if (data?.app !== 'leitor-estudo-ativo') { bkpStatus('Este arquivo não é um backup do Leitor de Estudo Ativo.', true); return; }
     const when = new Date(data.at).toLocaleString('pt-BR', { dateStyle: 'short', timeStyle: 'short' });
     const scopeTxt = Array.isArray(data.scope) ? ` das pastas ${data.scope.join(', ')}` : '';
-    if (!confirm(`Restaurar o backup${scopeTxt} de ${when} com ${data.docs.length} arquivos?\n\nArquivos com o mesmo nome serão substituídos pela versão do backup; o cronograma, os flashcards, o caderno de erros e o progresso passam a ser os do backup. O que só existe neste aparelho continua aqui.`)) { bkpStatus(''); return; }
+    if (!(await askConfirm(`Restaurar o backup${scopeTxt} de ${when} com ${data.docs.length} arquivos?\n\nArquivos com o mesmo nome serão substituídos pela versão do backup. O que só existe neste aparelho continua aqui.`, '📥 Restaurar', 'Cancelar'))) { bkpStatus('Restauração cancelada.'); return; }
     bkpStatus('Restaurando…');
     const bm = data.libMeta || (() => { try { return JSON.parse(data.settings?.['leitor-ativo-lib-meta'] || '{}'); } catch (_) { return {}; } })();
     for (const [k, v] of Object.entries(data.settings || {})) if (k !== 'leitor-ativo-lib-meta') try { localStorage.setItem(k, v); } catch (_) {}
@@ -5526,8 +5546,8 @@ ${t.text}
     setTimeout(() => location.reload(), 1200);
   }
   $('bkpExport').addEventListener('click', () => backupExport().catch(e => bkpStatus('Erro ao montar o backup: ' + (e?.message || e), true)));
-  $('bkpImport').addEventListener('click', () => $('bkpFile').click());
-  $('bkpFile').addEventListener('change', e => { backupImport(e.target.files[0]).catch(err => bkpStatus('Erro ao restaurar: ' + (err?.message || err), true)); e.target.value = ''; });
+  $('bkpImport').addEventListener('click', () => { bkpStatus('Escolha o arquivo do backup…'); $('bkpFile').click(); });
+  $('bkpFile').addEventListener('change', e => { if (!e.target.files[0]) { bkpStatus('Nenhum arquivo escolhido.'); return; } bkpStatus('Lendo o backup…'); backupImport(e.target.files[0]).catch(err => bkpStatus('Erro ao restaurar: ' + (err?.message || err), true)); e.target.value = ''; });
 
   // ===================== ☁ Sincronizar pelo Google Drive (pasta oculta do app) =====================
   const gd = {
@@ -5667,7 +5687,7 @@ ${t.text}
       let reload = false;
       if (remoteChanged) {
         let useRemote = true;
-        if (gd.dirty) useRemote = confirm('O Drive tem mudanças feitas em outro aparelho, e este aparelho também tem mudanças ainda não enviadas.\n\nOK = usar a versão do Drive (o outro aparelho)\nCancelar = manter a deste aparelho e enviar para o Drive');
+        if (gd.dirty) useRemote = await askConfirm('O Drive tem mudanças feitas em outro aparelho, e este aparelho também tem mudanças ainda não enviadas.\n\nQual versão manter?', 'Usar a do Drive', 'Manter a deste aparelho');
         if (useRemote) { gd.dirty = await gdPull(remote, files); reload = true; }
       }
       if (gd.dirty || !remote) { files = await gdList(); await gdPush(files); }
@@ -5691,8 +5711,8 @@ ${t.text}
     saveSetting('gdrive-on', '1'); gd.lastSync = 0; gdDraw();
     await gdSync({ interactive: true });
   });
-  $('gdOff').addEventListener('click', () => {
-    if (!confirm('Desconectar o Google Drive neste aparelho? Seus dados continuam aqui e no Drive.')) return;
+  $('gdOff').addEventListener('click', async () => {
+    if (!(await askConfirm('Desconectar o Google Drive neste aparelho? Seus dados continuam aqui e no Drive.', 'Desconectar'))) return;
     try { if (gd.token) google.accounts.oauth2.revoke(gd.token, () => {}); } catch (_) {}
     saveSetting('gdrive-on', ''); saveSetting('gdrive-token', 'null'); gd.token = null; gdDraw(); gdStatus('Google Drive desconectado neste aparelho.');
   });
@@ -5757,7 +5777,8 @@ ${t.text}
   cfApply();
 
   // ===================== ▶ Continuar de onde parou (ao voltar para o app, aba ou ao reabrir) =====================
-  const rs = { awayAt: 0, wasPlaying: false };
+  const rs = { awayAt: 0, wasPlaying: false, pickAt: 0 };
+  document.addEventListener('click', e => { if (e.target?.matches?.('input[type=file]')) rs.pickAt = Date.now(); }, true);
   function rsSave() {
     if (!state.blocks.length) return;
     saveSetting('resume', JSON.stringify({ docId: lib.activeId || null, index: state.index, at: Date.now(), book: !!bk.open, name: state.fileName || 'Texto de estudo', total: state.blocks.length, y: Math.round(window.scrollY) }));
@@ -5794,7 +5815,7 @@ ${t.text}
   document.addEventListener('visibilitychange', () => {
     if (document.visibilityState === 'hidden') { rs.awayAt = Date.now(); rs.wasPlaying = state.mode === 'playing'; rsSave(); return; }
     // voltou: se a leitura parou enquanto estava fora (ou nem estava tocando), oferece continuar
-    if (rs.awayAt && Date.now() - rs.awayAt > 4000 && state.mode !== 'playing' && state.blocks.length) {
+    if (rs.awayAt && Date.now() - rs.awayAt > 4000 && Date.now() - rs.pickAt > 180000 && state.mode !== 'playing' && state.blocks.length) {
       rsBanner(rsLoad(), rs.wasPlaying ? 'A leitura parou enquanto você estava fora' : 'Bem-vindo de volta');
     }
     rs.awayAt = 0;
