@@ -16,7 +16,7 @@
   <meta name="mobile-web-app-capable" content="yes">
   <meta name="apple-mobile-web-app-title" content="Leitor Ativo">
   <meta name="apple-mobile-web-app-status-bar-style" content="default">
-  <title>Leitor de Estudo Ativo • Versão 8.2</title>
+  <title>Leitor de Estudo Ativo • Versão 8.3</title>
   <!-- PDF.js (módulo moderno) é carregado somente ao abrir PDFs. Biblioteca e worker usam a mesma versão. -->
   <style>
     :root {
@@ -514,7 +514,7 @@
 <main>
   <header class="header">
     <div>
-      <div class="eyebrow">Estudo com áudio • v8.2</div>
+      <div class="eyebrow">Estudo com áudio • v8.3</div>
       <h1>Leitor de Estudo Ativo</h1>
       <p class="subtitle">Ouça, acompanhe a frase em destaque e retome de onde quiser.</p>
     </div>
@@ -2150,6 +2150,63 @@ ${text}
     renderQuestions(list.map(e => ({ ...e.q, erroId: e.id, _src: e.docName })));
     ileStatus(`📌 Caderno de erros: ${list.length} ${list.length === 1 ? 'questão' : 'questões'} para refazer. Acertou, ela sai do caderno.`);
   }
+
+  // 🎧 Aula dos meus erros: texto + áudio explicando cada erro e revisando os temas.
+  let aulaBusy = false;
+  async function errosAula(days) {
+    const since = days ? Date.now() - days * DAY : 0;
+    const list = loadErros().filter(e => e.ts >= since).slice(-15);
+    if (!list.length) { ileStatus('Nenhuma questão errada guardada neste período. 👏'); return; }
+    if (aulaBusy) return;
+    if (!ile.sample && gem.key) { ile.sample = gemSample; ile.ready = true; }
+    const alt = (q, l) => (q.alternativas || []).find(a => String(a.letra || '').trim().toUpperCase().charAt(0) === l)?.texto || '';
+    const blocos = list.map((e, k) => {
+      const q = e.q, c = String(q.correta || '').trim().toUpperCase().charAt(0);
+      const motivo = (q.eliminar || []).find(x => String(x.letra || '').trim().toUpperCase().charAt(0) === e.chosen)?.motivo || '';
+      return `ERRO ${k + 1} (arquivo: ${e.docName || '—'})
+Enunciado: ${q.enunciado}
+Marquei: ${e.chosen || '—'}) ${alt(q, e.chosen)}
+Correta: ${c}) ${alt(q, c)}
+Por que a marcada está errada: ${motivo || '—'}
+Trecho do material: ${q.localizar?.trecho || '—'}
+Explicação: ${q.localizar?.explicacao || '—'}`;
+    }).join('\n\n');
+    const prompt = `${ILE_RULES}
+O aluno errou as questões abaixo. Crie uma AULA DE REVISÃO DOS ERROS, narrada por um professor, para ser ouvida (cerca de ${Math.min(12, 3 + list.length)} minutos).
+- Agrupe os erros por tema (mesmo assunto = mesmo capítulo).
+- Para cada tema: explique o conceito certo de forma simples; mostre por que a alternativa marcada parecia certa e qual foi a pegadinha (troca de conceito, inversão, generalização, exceção esquecida…); diga como reconhecer a resposta certa usando o Método I-L-E (Identificar o comando e as palavras-chave, Localizar no material, Eliminar as erradas); feche com um mnemônico ou frase-gatilho.
+- Capítulo final: revisão rápida dos pontos e 3 perguntas de autoteste com a resposta logo depois.
+- Tom encorajador, frases curtas, sem tabelas, listas com marcadores ou símbolos; escreva números e siglas como se fala quando ajudar.
+- Use apenas o que está nos erros e trechos abaixo; não invente fatos.
+Responda APENAS com JSON válido: {"titulo":"string","capitulos":[{"titulo":"string","narracao":"texto corrido para ser lido em voz alta"}]}
+
+ERROS:
+"""
+${blocos}
+"""`;
+    if (!ile.sample) { ile.out.replaceChildren(promptCard(prompt)); ileStatus('Sem IA conectada: copie o prompt e cole numa conversa com o Claude.'); return; }
+    aulaBusy = true;
+    let data;
+    try { data = await ask(prompt, '🎧 Preparando a aula dos seus erros'); } finally { aulaBusy = false; }
+    const chapters = (data?.capitulos || []).filter(c => c?.narracao);
+    if (!chapters.length) { ileStatus('A aula veio vazia. Tente de novo.', true); return; }
+    const d = new Date(), title = `🎧 Revisão dos meus erros – ${pad2(d.getDate())}/${pad2(d.getMonth() + 1)}${data.titulo ? ' • ' + data.titulo : ''}`.slice(0, 100);
+    const text = chapters.map(c => `## ${c.titulo || 'Capítulo'}\n\n${c.narracao}`).join('\n\n');
+    const doc = libAdd(title, { text, pdfPages: null, ignored: [] }, 'Caderno de erros');
+    doc.kind = 'POD'; libDb.put(doc); libRender(true);
+    const words = (text.match(/\S+/g) || []).length;
+    const card = el('div', { class: 'card ile-result' },
+      el('span', { class: 'tag', text: `Aula dos erros • ${list.length} ${list.length === 1 ? 'questão' : 'questões'} • ~${Math.max(1, Math.round(words / 160))} min` }),
+      el('h3', { text: data.titulo || 'Revisão dos meus erros' }),
+      el('ol', {}, ...chapters.map(c => el('li', { text: c.titulo || 'Capítulo' }))),
+      el('div', { class: 'q-actions' },
+        el('button', { type: 'button', class: 'primary', text: '▶ Ouvir agora', onclick: async () => { await libSwitch(doc.id, { autoplay: true }); els.readerView.closest('section')?.scrollIntoView({ behavior: 'smooth', block: 'start' }); } }),
+        el('button', { type: 'button', text: '📄 Ler o texto', onclick: async () => { await libSwitch(doc.id, {}); els.readerView.closest('section')?.scrollIntoView({ behavior: 'smooth', block: 'start' }); } }),
+        el('button', { type: 'button', text: '📌 Refazer essas questões', onclick: () => errosRedo(days) })));
+    ile.out.prepend(card); card.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    ileStatus(`Aula salva na Biblioteca, pasta “Caderno de erros”: “${title}”.`);
+  }
+  hooks.errosAula = errosAula;
   hooks.errosRedo = errosRedo; hooks.errosCount = days => loadErros().filter(e => e.ts >= (days ? Date.now() - days * DAY : 0)).length;
 
   function renderQuestions(list) {
@@ -2157,7 +2214,8 @@ ${text}
     const frag = document.createDocumentFragment();
     frag.append(el('div', { class: 'scorebar' }, el('span', { id: 'ileScore' }),
       (ile.lastKind === 'extract' || ile.lastKind === 'erros' ? null : el('button', { type: 'button', text: '↻ Gerar novas', onclick: () => ile.run('questions', ile.lastScope) })),
-      (ile.lastKind !== 'erros' && loadErros().length ? el('button', { type: 'button', text: `📌 Caderno de erros (${loadErros().length})`, onclick: () => errosRedo(0) }) : null)));
+      (ile.lastKind !== 'erros' && loadErros().length ? el('button', { type: 'button', text: `📌 Caderno de erros (${loadErros().length})`, onclick: () => errosRedo(0) }) : null),
+      (loadErros().length ? el('button', { type: 'button', text: '🎧 Aula dos meus erros', onclick: () => errosAula(0) }) : null)));
     ile.results = list.map(() => null);
     list.forEach((q, i) => { const c = questionCard(q, i, list.length); c.id = 'ileQ' + i; frag.append(c); });
     frag.append(el('div', { id: 'ileResult', class: 'card ile-result' },
@@ -2167,6 +2225,7 @@ ${text}
       el('div', { class: 'q-actions' },
         (ile.lastKind === 'extract' || ile.lastKind === 'erros' ? null : el('button', { type: 'button', class: 'primary', text: '↻ Gerar novas questões', onclick: () => ile.run('questions', ile.lastScope) })),
         el('button', { type: 'button', text: '📌 Caderno de erros', onclick: () => errosRedo(0) }),
+        el('button', { type: 'button', text: '🎧 Aula dos meus erros', onclick: () => errosAula(0) }),
         el('button', { type: 'button', text: '↑ Primeira questão', onclick: () => $('ileQ0')?.scrollIntoView({ behavior: 'smooth', block: 'start' }) }))));
     ile.out.replaceChildren(frag);
     updateScore();
@@ -4935,7 +4994,7 @@ ${refText ? `\nMATERIAL DE REFERÊNCIA:\n"""\n${refText}\n"""` : ''}`, `Preparan
         el('div', { class: 'field', style: 'margin-top:8px' }, el('span', { class: 'label', text: 'Matérias' }), list),
         el('div', { class: 'field', style: 'margin-top:8px' }, el('span', { class: 'label', text: 'Formato' }), fmt),
         el('div', { class: 'field', style: 'margin-top:8px' }, el('span', { class: 'label', text: 'Como revisar' }), modo),
-        el('div', { class: 'q-actions' }, go, hooks.errosCount?.(p.days) ? el('button', { type: 'button', text: `📌 Refazer questões que errei (${hooks.errosCount(p.days)})`, onclick: () => hooks.errosRedo(p.days) }) : null)));
+        el('div', { class: 'q-actions' }, go, hooks.errosCount?.(p.days) ? el('button', { type: 'button', text: `📌 Refazer questões que errei (${hooks.errosCount(p.days)})`, onclick: () => hooks.errosRedo(p.days) }) : null, hooks.errosCount?.(p.days) ? el('button', { type: 'button', text: '🎧 Aula dos meus erros', onclick: () => { $('ileOut')?.scrollIntoView({ behavior: 'smooth' }); hooks.errosAula(p.days); } }) : null)));
     };
     draw();
     box.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
