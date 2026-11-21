@@ -16,7 +16,7 @@
   <meta name="mobile-web-app-capable" content="yes">
   <meta name="apple-mobile-web-app-title" content="Leitor Ativo">
   <meta name="apple-mobile-web-app-status-bar-style" content="default">
-  <title>Leitor de Estudo Ativo • Versão 8.4</title>
+  <title>Leitor de Estudo Ativo • Versão 8.5</title>
   <!-- PDF.js (módulo moderno) é carregado somente ao abrir PDFs. Biblioteca e worker usam a mesma versão. -->
   <style>
     :root {
@@ -266,6 +266,9 @@
     .tag { display: inline-block; font-size: .72rem; font-weight: 800; letter-spacing: .06em; text-transform: uppercase; color: var(--primary); margin-bottom: 4px; }
     .kw { display: inline-block; padding: 2px 9px; margin: 2px 4px 2px 0; border-radius: 99px; border: 1px solid var(--border); background: var(--surface); font-size: .84rem; }
     .ile-result { border: 2px solid var(--primary); }
+    .erro-item { border-top: 1px solid var(--border); padding: 8px 0; }
+    .erro-item p { margin: 0 0 4px; }
+    .erro-q { font-weight: 600; }
     .res-grid { display: flex; flex-wrap: wrap; gap: 6px; }
     .res-chip { min-width: 52px; padding: 6px 8px; font-variant-numeric: tabular-nums; }
     .res-chip.ok { background: #e3f4e8; border-color: #2e7d4f; color: #1e5c39; }
@@ -514,7 +517,7 @@
 <main>
   <header class="header">
     <div>
-      <div class="eyebrow">Estudo com áudio • v8.4</div>
+      <div class="eyebrow">Estudo com áudio • v8.5</div>
       <h1>Leitor de Estudo Ativo</h1>
       <p class="subtitle">Ouça, acompanhe a frase em destaque e retome de onde quiser.</p>
     </div>
@@ -727,6 +730,7 @@
       <button type="button" role="tab" data-tab="ex" data-perfis="praticar" aria-selected="false">✋ Exercícios</button>
       <button type="button" role="tab" data-tab="cards" data-perfis="praticar ver" aria-selected="true">🃏 Flashcards</button>
       <button type="button" role="tab" data-tab="disc" data-perfis="praticar" aria-selected="false">✍️ Discursiva</button>
+      <button type="button" role="tab" data-tab="erros" data-perfis="ouvir ver praticar" aria-selected="false">📌 Caderno de erros</button>
       <button type="button" class="pr-more" id="prMore" hidden>＋ Mais formatos</button>
     </div>
     <div class="pr-pane" data-pane="cards">
@@ -737,6 +741,10 @@
         <span class="hint" id="cardsCount"></span>
       </div>
       <div id="cardsOut" class="ile-out"></div>
+    </div>
+    <div class="pr-pane" data-pane="erros" hidden>
+      <p class="hint">As questões que você errou no Método I-L-E ficam aqui, separadas por arquivo. Refaça, ouça uma aula explicando os erros ou tire do caderno quando dominar.</p>
+      <div id="errosBox"></div>
     </div>
     <div class="pr-pane" data-pane="disc" hidden>
       <p class="hint">Treine a resposta discursiva no <strong>Padrão Ouro</strong>: 1) fundamentação jurídica, 2) erro técnico e norma violada, 3) trilha de risco e efeito, 4) conclusão e recomendação.</p>
@@ -2123,7 +2131,7 @@ ${text}
   }
   // ---------- 📌 Caderno de erros: questões erradas voltam como flashcard e na revisão ----------
   const loadErros = () => { try { return JSON.parse(loadSetting('erros', '[]')) || []; } catch (_) { return []; } };
-  const saveErros = list => saveSetting('erros', JSON.stringify(list.slice(-300)));
+  let saveErros = list => saveSetting('erros', JSON.stringify(list.slice(-300)));
   function erroSave(q, chosen, correct) {
     const key = normalizeText(q.enunciado || '').slice(0, 160);
     const list = loadErros().filter(e => normalizeText(e.q.enunciado || '').slice(0, 160) !== key);
@@ -2234,6 +2242,38 @@ ${blocos}
         el('button', { type: 'button', class: 'primary', text: '▶ Continuar de onde parei', onclick: () => ileRestore(sess) }),
         el('button', { type: 'button', text: 'Descartar', onclick: () => { saveSetting('ile-session', 'null'); ile.out.replaceChildren(); } }))));
   }, 0);
+
+  // ---------- 📌 Aba “Caderno de erros” (lugar fixo para ver, refazer e ouvir os erros) ----------
+  function errosRender() {
+    const box = $('errosBox'); if (!box) return;
+    const list = loadErros().slice().reverse();
+    const tab = document.querySelector('#practice [data-tab="erros"]');
+    if (tab) tab.textContent = `📌 Caderno de erros${list.length ? ` (${list.length})` : ''}`;
+    if (!list.length) { box.replaceChildren(el('p', { class: 'hint', text: 'Nenhuma questão errada guardada. Quando você errar uma questão do Método I-L-E, ela aparece aqui, vira flashcard e entra na revisão.' })); return; }
+    const goIle = () => setTimeout(() => $('ileOut')?.scrollIntoView({ behavior: 'smooth', block: 'start' }), 50);
+    const alt = (q, l) => (q.alternativas || []).find(a => String(a.letra || '').trim().toUpperCase().charAt(0) === l)?.texto || '';
+    const groups = new Map();
+    for (const e of list) { const k = e.docName || 'Sem arquivo'; if (!groups.has(k)) groups.set(k, []); groups.get(k).push(e); }
+    box.replaceChildren(
+      el('div', { class: 'toolbar', style: 'margin:6px 0 10px' },
+        el('button', { type: 'button', class: 'primary', text: `📝 Refazer todas (${list.length})`, onclick: () => { errosRedo(0); goIle(); } }),
+        el('button', { type: 'button', text: '🎧 Aula dos meus erros', onclick: () => { goIle(); errosAula(0); } })),
+      ...[...groups].map(([name, items]) => el('div', { class: 'block' },
+        el('h4', { text: `📄 ${name} (${items.length})` }),
+        ...items.map(e => {
+          const c = String(e.q.correta || '').trim().toUpperCase().charAt(0);
+          return el('div', { class: 'erro-item' },
+            el('p', { class: 'erro-q', text: String(e.q.enunciado || '').slice(0, 220) + (String(e.q.enunciado || '').length > 220 ? '…' : '') }),
+            el('p', { class: 'hint', text: `Você marcou ${e.chosen || '—'}${alt(e.q, e.chosen) ? ` (${alt(e.q, e.chosen).slice(0, 60)})` : ''} • Gabarito ${c}${alt(e.q, c) ? `: ${alt(e.q, c).slice(0, 80)}` : ''}` }),
+            el('div', { class: 'q-actions' },
+              el('button', { type: 'button', text: '↻ Refazer', onclick: () => { ile.lastKind = 'erros'; renderQuestions([{ ...e.q, erroId: e.id, _src: e.docName }]); goIle(); } }),
+              el('button', { type: 'button', text: '🗑 Tirar do caderno', onclick: () => { erroSolved(e.id); errosRender(); } })));
+        })))
+    );
+  }
+  document.querySelector('#practice [data-tab="erros"]')?.addEventListener('click', errosRender);
+  { const _save = saveErros; saveErros = list => { _save(list); try { errosRender(); } catch (_) {} }; }
+  setTimeout(errosRender, 0);
   hooks.errosRedo = errosRedo; hooks.errosCount = days => loadErros().filter(e => e.ts >= (days ? Date.now() - days * DAY : 0)).length;
 
   function renderQuestions(list) {
@@ -2241,7 +2281,7 @@ ${blocos}
     const frag = document.createDocumentFragment();
     frag.append(el('div', { class: 'scorebar' }, el('span', { id: 'ileScore' }),
       (ile.lastKind === 'extract' || ile.lastKind === 'erros' ? null : el('button', { type: 'button', text: '↻ Gerar novas', onclick: () => ile.run('questions', ile.lastScope) })),
-      (ile.lastKind !== 'erros' && loadErros().length ? el('button', { type: 'button', text: `📌 Caderno de erros (${loadErros().length})`, onclick: () => errosRedo(0) }) : null),
+      (ile.lastKind !== 'erros' && loadErros().length ? el('button', { type: 'button', text: `📌 Caderno de erros (${loadErros().length})`, onclick: () => hooks.openErros() }) : null),
       (loadErros().length ? el('button', { type: 'button', text: '🎧 Aula dos meus erros', onclick: () => errosAula(0) }) : null)));
     ile.results = list.map(() => null);
     if (!ile.restoring) { ile.session = { at: Date.now(), kind: ile.lastKind || '', doc: docName(), list, answers: {} }; ileSaveSession(); }
@@ -2252,7 +2292,7 @@ ${blocos}
       el('div', { class: 'res-grid' }, ...list.map((_, i) => el('button', { type: 'button', class: 'res-chip', onclick: () => $('ileQ' + i)?.scrollIntoView({ behavior: 'smooth', block: 'start' }) }))),
       el('div', { class: 'q-actions' },
         (ile.lastKind === 'extract' || ile.lastKind === 'erros' ? null : el('button', { type: 'button', class: 'primary', text: '↻ Gerar novas questões', onclick: () => ile.run('questions', ile.lastScope) })),
-        el('button', { type: 'button', text: '📌 Caderno de erros', onclick: () => errosRedo(0) }),
+        el('button', { type: 'button', text: '📌 Caderno de erros', onclick: () => hooks.openErros() }),
         el('button', { type: 'button', text: '🎧 Aula dos meus erros', onclick: () => errosAula(0) }),
         el('button', { type: 'button', text: '↑ Primeira questão', onclick: () => $('ileQ0')?.scrollIntoView({ behavior: 'smooth', block: 'start' }) }))));
     ile.out.replaceChildren(frag);
@@ -4048,6 +4088,7 @@ ${blocos}
     saveSetting('practice-tab', tab.dataset.tab);
   }));
   document.querySelector(`#practice [data-tab="${loadSetting('practice-tab', 'cards')}"]`)?.click();
+  hooks.openErros = () => { const t = document.querySelector('#practice [data-tab="erros"]'); t.hidden = false; t.click(); $('practice').scrollIntoView({ behavior: 'smooth', block: 'start' }); };
   // Card para copiar o prompt quando não há IA disponível neste aparelho.
   function promptCard(prompt) {
     const box = el('textarea', { class: 'prompt-box', readonly: '' }); box.value = prompt;
