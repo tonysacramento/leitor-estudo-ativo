@@ -16,7 +16,7 @@
   <meta name="mobile-web-app-capable" content="yes">
   <meta name="apple-mobile-web-app-title" content="Leitor Ativo">
   <meta name="apple-mobile-web-app-status-bar-style" content="default">
-  <title>Leitor de Estudo Ativo • Versão 8.8</title>
+  <title>Leitor de Estudo Ativo • Versão 8.9</title>
   <!-- PDF.js (módulo moderno) é carregado somente ao abrir PDFs. Biblioteca e worker usam a mesma versão. -->
   <style>
     :root {
@@ -434,6 +434,8 @@
     .block.missed { border: 2px solid var(--primary); background: var(--active); }
     .missed-list { display: grid; gap: 6px; margin: 6px 0; font-size: .9rem; }
     .block.moved { opacity: .55; }
+    .block.late { border-left: 4px solid #c77d12; }
+    .catchup-sep { margin: 16px 0 6px; padding-top: 10px; border-top: 2px dashed var(--border); }
     .ask-wrap { position: fixed; inset: 0; z-index: 2147483200; background: rgba(0,0,0,.45); display: grid; place-items: center; padding: 16px; }
     .ask-box { background: var(--surface); color: var(--text); border-radius: 16px; padding: 16px 18px; width: min(440px, 100%); box-shadow: 0 20px 60px rgba(0,0,0,.35); }
     .ask-box p { margin: 0 0 10px; line-height: 1.45; }
@@ -521,7 +523,7 @@
 <main>
   <header class="header">
     <div>
-      <div class="eyebrow">Estudo com áudio • v8.8</div>
+      <div class="eyebrow">Estudo com áudio • v8.9</div>
       <h1>Leitor de Estudo Ativo</h1>
       <p class="subtitle">Ouça, acompanhe a frase em destaque e retome de onde quiser.</p>
     </div>
@@ -5260,7 +5262,8 @@ ${material}
       el('p', { class: 'hint', text: 'Você estudou e esqueceu de marcar? Marque o que estudou. O que não estudou volta para o cronograma a partir de hoje.' }),
       el('div', { class: 'missed-list' }, ...missed.map((m, k) => el('label', { class: 'toggle' }, checks[k], ` ${fmtDay(m.d)} • ${m.b.materia}${m.b.topicos?.[0] ? ' – ' + m.b.topicos[0] : ''} (${m.b.tipo})`))),
       el('div', { class: 'q-actions' },
-        el('button', { type: 'button', class: 'primary', text: '✓ Sim, estudei tudo', onclick: () => finish(true) }),
+        el('button', { type: 'button', class: 'primary', text: '📚 Quero estudar agora', onclick: () => { ed.catchup = true; edRenderToday(); $('edToday')?.scrollIntoView({ behavior: 'smooth', block: 'start' }); edStatus('Recuperando o atraso: os blocos atrasados estão logo abaixo.'); } }),
+        el('button', { type: 'button', text: '✓ Sim, estudei tudo', onclick: () => finish(true) }),
         el('button', { type: 'button', text: '↪ Não estudei: replanejar', onclick: () => finish(false) }),
         el('button', { type: 'button', text: 'Salvar o que marquei', onclick: () => finish(null) })));
   }
@@ -5298,12 +5301,13 @@ ${material}
       el('div', { class: 'score-bar' }, el('div', { style: `width:${Math.round(doneN / Math.max(1, allBlocks) * 100)}%` })));
     if (view < dates[0] || !plan.days[view]) card.append(el('p', { class: 'hint', text: 'Sem estudo marcado para este dia.' }));
     if (!plan.days[today] && view > today && view === dates.find(x => x >= today)) card.append(el('p', { class: 'hint', text: 'Hoje não tem estudo no cronograma: mostrando o próximo dia.' }));
-    const missed = edMissed(); if (missed.length) card.append(edMissedCard(missed));
-    blocks.forEach((b, i) => {
+    const missed = edMissed();
+    // Um bloco do cronograma (usado no dia e na recuperação do atraso).
+    const blockBox = (view, i, b, late) => {
       const key = view + '#' + i, done = !!plan.done[key];
-      if (b.moved) { card.append(el('div', { class: 'block moved' }, el('span', { class: 'tipo', text: `Bloco ${i + 1} • ${b.tipo}` }), el('h4', { text: b.materia }), el('p', { class: 'hint', text: `↪ Não estudado: remarcado${b.movedTo ? ' para ' + fmtDay(b.movedTo) : ''}.` }))); return; }
-      const box2 = el('div', { class: 'block' + (done ? ' done' : '') },
-        el('span', { class: 'tipo', text: `Bloco ${i + 1} • ${b.tipo}${b.grupo ? (b.grupo === 'especificos' ? ' • específica' : ' • geral') : ''}` }),
+      if (b.moved) return el('div', { class: 'block moved' }, el('span', { class: 'tipo', text: `Bloco ${i + 1} • ${b.tipo}` }), el('h4', { text: b.materia }), el('p', { class: 'hint', text: `↪ Não estudado: remarcado${b.movedTo ? ' para ' + fmtDay(b.movedTo) : ''}.` }));
+      const box2 = el('div', { class: 'block' + (done ? ' done' : '') + (late ? ' late' : '') },
+        el('span', { class: 'tipo', text: `${late ? '⏰ Atrasado • ' + fmtDay(view) : 'Bloco ' + (i + 1)} • ${b.tipo}${b.grupo ? (b.grupo === 'especificos' ? ' • específica' : ' • geral') : ''}` }),
         el('h4', { text: b.materia }));
       if (b.movedFrom) box2.append(el('p', { class: 'hint', style: 'margin:0', text: `↩ Remarcado de ${fmtDay(b.movedFrom)}` }));
       const ul = el('ul'); b.topicos.forEach(t => ul.append(el('li', { text: t }))); box2.append(ul);
@@ -5341,10 +5345,28 @@ ${material}
       } else if (/revis/.test(b.tipo)) {
         acts.append(el('button', { type: 'button', class: 'primary', text: '🔁 Fazer a revisão', onclick: () => edOpenReview(b.tipo === 'revisão final' ? 0 : 7) }));
       }
-      acts.append(el('button', { type: 'button', text: done ? '↺ Desmarcar' : '✓ Feito', onclick: () => { if (done) delete plan.done[key]; else plan.done[key] = Date.now(); edSave(); edRenderToday(); } }));
+      acts.append(el('button', { type: 'button', text: done ? '↺ Desmarcar' : '✓ Feito', onclick: () => {
+        if (done) delete plan.done[key]; else plan.done[key] = Date.now();
+        edSave();
+        if (late && !done && !edMissed().length) { ed.catchup = false; edRenderToday(); edStatus('🎉 Atraso recuperado! Agora é seguir o cronograma de hoje.'); return; }
+        edRenderToday();
+      } }));
       box2.append(acts);
-      card.append(box2);
-    });
+      return box2;
+    };
+    if (missed.length && ed.catchup) {
+      // 📚 Recuperar o atraso agora: os blocos atrasados aparecem para estudar já.
+      card.append(el('div', { class: 'block missed' },
+        el('h4', { text: `📚 Recuperando o atraso: ${missed.length} ${missed.length === 1 ? 'bloco' : 'blocos'}` }),
+        el('p', { class: 'hint', text: 'Estude cada um e toque em ✓ Feito. Se não der tempo, o que sobrar pode ser replanejado.' }),
+        el('div', { class: 'q-actions' },
+          el('button', { type: 'button', class: 'primary', text: '🍅 Começar com Pomodoro', onclick: () => hooks.pomoStart?.() }),
+          el('button', { type: 'button', text: '↪ Replanejar o que falta', onclick: () => { ed.catchup = false; const r = edReschedule(edMissed()); for (const m of missed) plan.asked[m.d] = true; edSave(); edRenderToday(); edStatus(`↪ Blocos restantes remarcados a partir de hoje.${r.extra ? ' Alguns ficaram como bloco extra perto da prova.' : ''}`); } }),
+          el('button', { type: 'button', text: 'Voltar ao dia de hoje', onclick: () => { ed.catchup = false; edRenderToday(); } }))));
+      missed.forEach(m => card.append(blockBox(m.d, m.i, m.b, true)));
+      card.append(el('h4', { class: 'catchup-sep', text: `Estudo de ${view === today ? 'hoje' : fmtDay(view)}` }));
+    } else if (missed.length) card.append(edMissedCard(missed));
+    blocks.forEach((b, i) => card.append(blockBox(view, i, b)));
     card.append(el('div', { id: 'edReview' }));
     card.append(el('div', { class: 'q-actions' }, el('button', { type: 'button', class: 'primary', text: '🍅 Começar com Pomodoro', onclick: () => hooks.pomoStart?.() }), el('button', { type: 'button', text: '⏰ Lembrete', onclick: () => edReminderPanel() }), el('button', { type: 'button', text: '🔁 Revisão', onclick: () => { $('edReview').dataset.open = ''; edOpenReview(); } }), el('button', { type: 'button', text: '⚙ Edital, vaga e cronograma', onclick: () => { $('edSetup').open = true; $('edSetup').scrollIntoView({ behavior: 'smooth', block: 'start' }); } })));
     box.replaceChildren(card);
