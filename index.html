@@ -16,7 +16,7 @@
   <meta name="mobile-web-app-capable" content="yes">
   <meta name="apple-mobile-web-app-title" content="Leitor Ativo">
   <meta name="apple-mobile-web-app-status-bar-style" content="default">
-  <title>Leitor de Estudo Ativo • Versão 8.5</title>
+  <title>Leitor de Estudo Ativo • Versão 8.6</title>
   <!-- PDF.js (módulo moderno) é carregado somente ao abrir PDFs. Biblioteca e worker usam a mesma versão. -->
   <style>
     :root {
@@ -266,6 +266,8 @@
     .tag { display: inline-block; font-size: .72rem; font-weight: 800; letter-spacing: .06em; text-transform: uppercase; color: var(--primary); margin-bottom: 4px; }
     .kw { display: inline-block; padding: 2px 9px; margin: 2px 4px 2px 0; border-radius: 99px; border: 1px solid var(--border); background: var(--surface); font-size: .84rem; }
     .ile-result { border: 2px solid var(--primary); }
+    .ed-paste { display: grid; gap: 8px; margin-top: 8px; }
+    .ed-paste textarea { width: 100%; min-height: 160px; padding: 10px; border: 1px solid var(--border); border-radius: 10px; background: var(--surface); color: var(--text); font: inherit; font-size: .9rem; resize: vertical; }
     .erro-item { border-top: 1px solid var(--border); padding: 8px 0; }
     .erro-item p { margin: 0 0 4px; }
     .erro-q { font-weight: 600; }
@@ -517,7 +519,7 @@
 <main>
   <header class="header">
     <div>
-      <div class="eyebrow">Estudo com áudio • v8.5</div>
+      <div class="eyebrow">Estudo com áudio • v8.6</div>
       <h1>Leitor de Estudo Ativo</h1>
       <p class="subtitle">Ouça, acompanhe a frase em destaque e retome de onde quiser.</p>
     </div>
@@ -552,6 +554,11 @@
         <div class="toolbar" style="margin-top:4px">
           <button type="button" class="primary" id="edUpload">📄 Anexar edital (PDF)</button>
           <select id="edFromLib" aria-label="Usar um edital da biblioteca"><option value="">…ou escolha um arquivo da biblioteca</option></select>
+          <button type="button" id="edPasteBtn">📋 Colar o texto do edital</button>
+        </div>
+        <div id="edPasteBox" class="ed-paste" hidden>
+          <textarea id="edPasteText" rows="8" placeholder="Cole aqui o texto do edital (de preferência com o quadro de vagas e o conteúdo programático)."></textarea>
+          <div class="toolbar"><button type="button" class="primary" id="edPasteGo">🔎 Ler o edital colado</button><span class="hint" id="edPasteCount"></span></div>
         </div>
         <input type="file" id="edProgFile" class="file-input-hidden" accept=".pdf,.txt,.md,application/pdf,text/plain" aria-hidden="true" tabindex="-1">
         <input type="file" id="edFile" class="file-input-hidden" accept=".pdf,.txt,.md,application/pdf,text/plain" aria-hidden="true" tabindex="-1">
@@ -4793,6 +4800,17 @@ ${slice}
     sel.replaceChildren(new Option('…ou escolha um arquivo da biblioteca', ''), ...lib.docs.filter(d => !d.pending).map(d => new Option(`${d.name} (${colOf(d)})`, d.id)));
     sel.value = cur;
   }
+  $('edPasteBtn').addEventListener('click', () => { const b = $('edPasteBox'); b.hidden = !b.hidden; if (!b.hidden) $('edPasteText').focus(); });
+  $('edPasteText').addEventListener('input', () => { const n = $('edPasteText').value.trim().length; $('edPasteCount').textContent = n ? `${n.toLocaleString('pt-BR')} caracteres` : ''; });
+  $('edPasteGo').addEventListener('click', async () => {
+    const text = $('edPasteText').value.trim();
+    if (text.length < 300) { edStatus('Cole o texto do edital (parece curto demais).', true); return; }
+    // Guarda também na biblioteca, numa pasta própria, sem mexer no arquivo aberto.
+    const n = lib.docs.filter(d => /^Edital colado/.test(d.name)).length + 1;
+    const doc = libAdd(`Edital colado ${n}`, { text, pdfPages: null, ignored: [] }, 'Editais');
+    $('edPasteBox').hidden = true; $('edPasteText').value = ''; $('edPasteCount').textContent = '';
+    await edLoadText(text, doc.name, doc.id);
+  });
   $('edFromLib').addEventListener('focus', edFillLib);
   $('edFromLib').addEventListener('change', () => { const d = libDoc($('edFromLib').value); if (d) edLoadText(d.text, d.name, d.id); });
 
