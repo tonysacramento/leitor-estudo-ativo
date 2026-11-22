@@ -16,7 +16,7 @@
   <meta name="mobile-web-app-capable" content="yes">
   <meta name="apple-mobile-web-app-title" content="Leitor Ativo">
   <meta name="apple-mobile-web-app-status-bar-style" content="default">
-  <title>Leitor de Estudo Ativo • Versão 8.7</title>
+  <title>Leitor de Estudo Ativo • Versão 8.8</title>
   <!-- PDF.js (módulo moderno) é carregado somente ao abrir PDFs. Biblioteca e worker usam a mesma versão. -->
   <style>
     :root {
@@ -521,7 +521,7 @@
 <main>
   <header class="header">
     <div>
-      <div class="eyebrow">Estudo com áudio • v8.7</div>
+      <div class="eyebrow">Estudo com áudio • v8.8</div>
       <h1>Leitor de Estudo Ativo</h1>
       <p class="subtitle">Ouça, acompanhe a frase em destaque e retome de onde quiser.</p>
     </div>
@@ -2566,16 +2566,33 @@ ${blocos}
   ile.btnSummary.disabled = true; ile.btnQuestions.disabled = true;
   ileStatus('Conectando ao Claude…');
   (async () => {
+    // Celulares mais lentos podem levar vários segundos para o Claude se conectar à página.
+    // Depois de 3 s mostra o modo sem IA, mas continua esperando até 20 s e liga a IA se ela chegar.
+    let fellBack = false;
+    const fallback = () => { if (!fellBack) { fellBack = true; enableFallback(); } };
+    const t3 = setTimeout(fallback, 3000);
     try {
-      // Aguarda até 3 s o ambiente do Claude aparecer (fora dele, cai no modo offline).
-      for (let i = 0; i < 30 && !window.claude?.use; i++) await new Promise(r => setTimeout(r, 100));
+      for (let i = 0; i < 200 && !window.claude?.use; i++) await new Promise(r => setTimeout(r, 100));
       const sample = window.claude?.use ? await window.claude.use('sample') : null;
-      // Aberto no Claude mas sem a IA: quase sempre é porque a pessoa não entrou com a conta.
-      if (!sample && window.claude?.use) { ile.needLogin = true; showLoginHint(); }
-      if (!sample) { enableFallback(); return; }
-      ile.sample = sample; ile.ready = true; setIleBusy(false);
-      ileStatus('Pronto. Prepare o texto na etapa 1 e escolha resumo ou questões.');
-    } catch (_) { enableFallback(); }
+      clearTimeout(t3);
+      if (!sample) {
+        // Aberto no Claude mas sem a IA: quase sempre é porque a pessoa não entrou com a conta.
+        if (window.claude?.use) { ile.needLogin = true; showLoginHint(); }
+        fallback(); return;
+      }
+      ile.sample = sample; ile.ready = true; ile.needLogin = false; $('loginHint')?.remove();
+      if (fellBack) {
+        // Religa os botões no modo Claude (o modo sem IA tinha trocado os handlers).
+        ile.btnSummary.replaceWith(ile.btnSummary = ile.btnSummary.cloneNode(true));
+        ile.btnQuestions.replaceWith(ile.btnQuestions = ile.btnQuestions.cloneNode(true));
+        ile.btnSummary.addEventListener('click', () => generateSummary());
+        ile.btnQuestions.addEventListener('click', () => generateQuestions());
+        ile.run = (kind, scope) => (kind === 'summary' ? generateSummary(scope) : kind === 'extract' ? generateFromFile(scope) : generateQuestions(scope));
+        ile.out.querySelector('.prompt-box')?.closest('.card')?.remove();
+      }
+      setIleBusy(false);
+      ileStatus(fellBack ? '✓ IA do Claude conectada. Pode gerar resumo e questões.' : 'Pronto. Prepare o texto na etapa 1 e escolha resumo ou questões.');
+    } catch (_) { clearTimeout(t3); fallback(); }
   })();
 
   // ===================== PWA: instalação, offline e abrir arquivos =====================
