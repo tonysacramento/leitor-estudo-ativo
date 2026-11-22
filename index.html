@@ -56,6 +56,43 @@
     :root[data-theme="night"] img { filter: brightness(.75) sepia(.25); }
     :root[data-theme="night"] .status.error, :root[data-theme="night"] .verdict.bad { color: #e0907e; }
     :root[data-theme="night"] .verdict.ok { color: #9fc48a; }
+    /* ===================== 📟 Modo Kindle (tela e-ink): preto e branco, sem animações, botões grandes ===================== */
+    :root[data-theme="eink"] {
+      color-scheme: light;
+      --bg: #ffffff; --surface: #ffffff; --surface-2: #ffffff;
+      --border: #000000; --text: #000000; --muted: #222222;
+      --primary: #000000; --primary-hover: #000000; --on-primary: #ffffff;
+      --active: #ffffff; --active-border: #000000;
+      --focus: #000000; --shadow: none;
+    }
+    :root[data-theme="eink"] *, :root[data-theme="eink"] *::before, :root[data-theme="eink"] *::after {
+      transition: none !important; animation: none !important; box-shadow: none !important; text-shadow: none !important;
+      scroll-behavior: auto !important; backdrop-filter: none !important; -webkit-backdrop-filter: none !important;
+    }
+    :root[data-theme="eink"] body { font-size: 17px; padding: 10px; }
+    :root[data-theme="eink"] .panel { border: 2px solid #000; border-radius: 6px; }
+    :root[data-theme="eink"] button, :root[data-theme="eink"] select, :root[data-theme="eink"] input, :root[data-theme="eink"] textarea { border: 2px solid #000 !important; border-radius: 6px; background: #fff; color: #000; min-height: 48px; font-size: 1rem; }
+    :root[data-theme="eink"] input[type=checkbox], :root[data-theme="eink"] input[type=radio] { min-height: 0; width: 26px; height: 26px; }
+    :root[data-theme="eink"] button.primary, :root[data-theme="eink"] .primary { background: #000 !important; color: #fff !important; }
+    :root[data-theme="eink"] button:hover { background: inherit; }
+    :root[data-theme="eink"] .hint, :root[data-theme="eink"] .subtitle { color: #222; }
+    :root[data-theme="eink"] img { filter: grayscale(1) contrast(1.1); }
+    :root[data-theme="eink"] .reader { line-height: 1.75; border: 2px solid #000; }
+    :root[data-theme="eink"] .reader .active, :root[data-theme="eink"] .reader [class~="active"] { background: #fff !important; text-decoration: underline 3px; text-underline-offset: 4px; font-weight: 700; }
+    :root[data-theme="eink"] .progress > div { background: #000; }
+    /* Recursos de áudio e filtros de luz não fazem sentido no e-ink */
+    :root[data-theme="eink"] .eink-hide, :root[data-theme="eink"] #btnPlay, :root[data-theme="eink"] #btnPause, :root[data-theme="eink"] #btnStop,
+    :root[data-theme="eink"] #bkMini, :root[data-theme="eink"] .bk-controls, :root[data-theme="eink"] #btnInstall,
+    :root[data-theme="eink"] .cf-row, :root[data-theme="eink"] .cf-filter, :root[data-theme="eink"] .cf-dimmer, :root[data-theme="eink"] .cf-times { display: none !important; }
+    .book[data-bk-theme="eink"] { --bk-bg: #fff; --bk-fg: #000; --bk-muted: #222; --bk-hl: #fff; --bk-bar: #fff; --bk-line: #000; }
+    .book[data-bk-theme="eink"] .book-flow .s.active { text-decoration: underline 3px; text-underline-offset: 4px; }
+    /* Botões de página (▲ ▼): no e-ink, virar a tela é muito melhor que arrastar */
+    .eink-pager { display: none; }
+    :root[data-theme="eink"] .eink-pager { display: flex; gap: 10px; position: fixed; left: 0; right: 0; bottom: 0; z-index: 950; padding: 6px 10px; background: #fff; border-top: 2px solid #000; }
+    :root[data-theme="eink"] .eink-pager button { flex: 1; min-height: 52px; font-size: 1.1rem; padding: 0; background: #fff; }
+    :root[data-theme="eink"] body { padding-bottom: 80px; }
+    :root[data-theme="eink"] .book-toast { background: #fff; color: #000; border: 2px solid #000; }
+    :root[data-theme="eink"] .book:not([hidden]) ~ .eink-pager { display: none; }
     .book[data-bk-theme="noite"] { --bk-bg: #0b0a08; --bk-fg: #c9b48e; --bk-muted: #7f705a; --bk-hl: #3a2d10; --bk-bar: rgba(11,10,8,.97); --bk-line: #2a251c; color-scheme: dark; }
     .bk-themes [data-value="noite"] { background: #0b0a08; color: #c9b48e; }
     .cf-filter, .cf-dimmer { position: fixed; inset: 0; pointer-events: none; z-index: 2147483000; transition: background-color .4s; }
@@ -64,7 +101,7 @@
     .comfort { position: fixed; z-index: 2147483100; right: 12px; left: auto; top: calc(env(safe-area-inset-top, 0px) + 12px); width: min(380px, calc(100vw - 24px)); max-width: calc(100vw - 24px); max-height: calc(100dvh - 24px); overflow-y: auto; overflow-x: hidden; background: var(--surface); color: var(--text); border: 1px solid var(--border); border-radius: 16px; box-shadow: 0 18px 50px rgba(0,0,0,.28); padding: 14px; display: grid; gap: 10px; }
     .comfort[hidden] { display: none; }
     .cf-head { display: flex; justify-content: space-between; align-items: center; }
-    .cf-modes { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 6px; }
+    .cf-modes { display: grid; grid-template-columns: repeat(auto-fill, minmax(66px, 1fr)); gap: 6px; }
     .comfort > * { min-width: 0; }
     .cf-head button { flex: 0 0 auto; min-width: 44px; min-height: 40px; }
     .cf-done { width: 100%; }
@@ -835,14 +872,16 @@
     <button type="button" data-cf="dark" role="radio">◐<span>Escuro</span></button>
     <button type="button" data-cf="soft" role="radio">🌿<span>Proteção visual</span></button>
     <button type="button" data-cf="night" role="radio">🌙<span>Leitura noturna</span></button>
+    <button type="button" data-cf="eink" role="radio">📟<span>Kindle (e-ink)</span></button>
   </div>
   <label class="cf-row">Filtro de luz azul <input type="range" id="cfWarm" min="0" max="60" step="5" value="0"><output id="cfWarmV">0%</output></label>
   <label class="cf-row">Diminuir o brilho <input type="range" id="cfDim" min="0" max="60" step="5" value="0"><output id="cfDimV">0%</output></label>
   <label class="toggle"><input type="checkbox" id="cfAuto"> Leitura noturna automática</label>
   <div class="cf-times">das <input type="time" id="cfFrom" value="20:00" aria-label="Início da leitura noturna"> às <input type="time" id="cfTo" value="06:00" aria-label="Fim da leitura noturna"></div>
   <button type="button" id="cfDone" class="primary cf-done">✓ Pronto</button>
-  <p class="hint">Proteção visual: fundo creme, contraste mais suave e letras um pouco mais espaçadas. Leitura noturna: fundo quase preto, letras âmbar e menos luz azul. O livro (📖) acompanha o modo escolhido.</p>
+  <p class="hint">Proteção visual: fundo creme, contraste mais suave e letras um pouco mais espaçadas. Leitura noturna: fundo quase preto, letras âmbar e menos luz azul. Kindle (e-ink): preto e branco puro, sem animações, botões grandes e ▲ ▼ para virar a tela; para ler, use 📖 Ler como livro. O livro (📖) acompanha o modo escolhido.</p>
 </div>
+<div class="eink-pager" role="group" aria-label="Virar a tela"><button type="button" id="einkUp" aria-label="Tela anterior">▲ Voltar tela</button><button type="button" id="einkDown" aria-label="Próxima tela">▼ Avançar tela</button></div>
 <div id="cfFilter" class="cf-filter" aria-hidden="true"></div>
 <div id="cfDimmer" class="cf-dimmer" aria-hidden="true"></div>
 <div id="alertBanner" class="alert-banner" hidden role="alert"></div>
@@ -6040,20 +6079,28 @@ ${t.text}
 
   // ===================== 👁 Conforto visual: proteção visual, leitura noturna, filtro de luz azul e brilho =====================
   const cf = (() => { try { return JSON.parse(loadSetting('comfort', '{}')) || {}; } catch (_) { return {}; } })();
+  // 📟 Modo Kindle: liga sozinho com ?kindle=1 no endereço ou quando o navegador se identifica como Kindle
+  try {
+    const q = new URLSearchParams(location.search).get('kindle');
+    if (q === '0' && cf.mode === 'eink') cf.mode = 'light';
+    else if (q !== null && q !== '0') cf.mode = 'eink';
+    else if (!cf.mode && /Kindle|Silk\//i.test(navigator.userAgent)) cf.mode = 'eink';
+  } catch (_) {}
   cf.mode ||= document.documentElement.dataset.theme || 'light'; cf.warm ??= 0; cf.dim ??= 0; cf.from ||= '20:00'; cf.to ||= '06:00';
-  const CF_BOOK = { light: null, dark: 'escuro', soft: 'sepia', night: 'noite' };
-  const CF_LABEL = { light: '☀️ Claro', dark: '◐ Escuro', soft: '🌿 Suave', night: '🌙 Noturno' };
+  const CF_BOOK = { light: null, dark: 'escuro', soft: 'sepia', night: 'noite', eink: 'eink' };
+  const CF_LABEL = { light: '☀️ Claro', dark: '◐ Escuro', soft: '🌿 Suave', night: '🌙 Noturno', eink: '📟 Kindle' };
   const inRange = (from, to) => {
     const n = new Date(), m = n.getHours() * 60 + n.getMinutes();
     const [a, b] = [from, to].map(t => { const [h, mm] = t.split(':').map(Number); return h * 60 + mm; });
     return a <= b ? m >= a && m < b : m >= a || m < b;
   };
   let cfAutoNight = false;
-  function cfEffective() { return cf.auto && inRange(cf.from, cf.to) ? 'night' : cf.mode; }
+  function cfEffective() { return cf.mode !== 'eink' && cf.auto && inRange(cf.from, cf.to) ? 'night' : cf.mode; }
   function cfApply(syncBook = false) {
     const mode = cfEffective();
     document.documentElement.dataset.theme = mode;
-    document.querySelector('meta[name=theme-color]')?.setAttribute('content', { light: '#174b87', dark: '#101827', soft: '#6b5a3e', night: '#0b0a08' }[mode]);
+    if (mode === 'eink' && bk.settings && bk.settings.theme !== 'eink') { bk.settings.theme = 'eink'; bkApplySettings(); }
+    document.querySelector('meta[name=theme-color]')?.setAttribute('content', { light: '#174b87', dark: '#101827', soft: '#6b5a3e', night: '#0b0a08', eink: '#000000' }[mode]);
     // à noite, um pouco de filtro âmbar por padrão se o usuário não escolheu
     const warm = mode === 'night' && !cf.warmSet ? Math.max(cf.warm, 20) : cf.warm;
     $('cfFilter').style.backgroundColor = `rgba(255, 140, 30, ${warm / 100 * .55})`;
@@ -6094,6 +6141,32 @@ ${t.text}
   setInterval(() => { if (cf.auto && document.documentElement.dataset.theme !== cfEffective()) cfApply(); }, 60000);
   // atalho dentro do livro
   $('bkComfort')?.addEventListener('click', () => { $('comfort').hidden = false; });
+  // Itens só de áudio ou de filtro de luz, escondidos no Modo Kindle
+  [$('voiceSelect')?.closest('.field'), $('speedRange')?.closest('.field'), $('bgAudio')?.closest('label'), $('bgAudio')?.closest('label')?.nextElementSibling, $('cfAuto')?.closest('label')]
+    .forEach(n => n?.classList.add('eink-hide'));
+  // No e-ink, rolagem suave vira dezenas de atualizações de tela: aqui todo salto é instantâneo
+  const isEink = () => document.documentElement.dataset.theme === 'eink';
+  const nativeSIV = Element.prototype.scrollIntoView;
+  Element.prototype.scrollIntoView = function (opt) {
+    if (isEink() && opt && typeof opt === 'object') opt = Object.assign({}, opt, { behavior: 'auto' });
+    return nativeSIV.call(this, opt);
+  };
+  ['scrollTo', 'scrollBy'].forEach(fn => {
+    const nat = window[fn].bind(window);
+    window[fn] = function (a, b) { if (isEink() && a && typeof a === 'object') a = Object.assign({}, a, { behavior: 'auto' }); return b === undefined ? nat(a) : nat(a, b); };
+  });
+  // ▲ ▼: vira a caixa de leitura quando ela ocupa a tela; senão, vira a página inteira
+  function einkPage(dir) {
+    const r = els.readerView, b = r.getBoundingClientRect();
+    const vis = Math.min(b.bottom, innerHeight) - Math.max(b.top, 0);
+    if (vis > innerHeight * 0.45 && r.scrollHeight > r.clientHeight + 4) {
+      const before = r.scrollTop; r.scrollTop += dir * r.clientHeight * 0.9;
+      if (r.scrollTop !== before) return;
+    }
+    window.scrollBy(0, dir * innerHeight * 0.85);
+  }
+  $('einkUp').addEventListener('click', () => einkPage(-1));
+  $('einkDown').addEventListener('click', () => einkPage(1));
   cfApply();
 
   // ===================== ▶ Continuar de onde parou (ao voltar para o app, aba ou ao reabrir) =====================
