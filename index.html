@@ -16,7 +16,7 @@
   <meta name="mobile-web-app-capable" content="yes">
   <meta name="apple-mobile-web-app-title" content="Leitor Ativo">
   <meta name="apple-mobile-web-app-status-bar-style" content="default">
-  <title>Leitor de Estudo Ativo • Versão 9.0</title>
+  <title>Leitor de Estudo Ativo • Versão 9.1</title>
   <!-- PDF.js (módulo moderno) é carregado somente ao abrir PDFs. Biblioteca e worker usam a mesma versão. -->
   <style>
     :root {
@@ -560,7 +560,7 @@
 <main>
   <header class="header">
     <div>
-      <div class="eyebrow">Estudo com áudio • v9.0</div>
+      <div class="eyebrow">Estudo com áudio • v9.1</div>
       <h1>Leitor de Estudo Ativo</h1>
       <p class="subtitle">Ouça, acompanhe a frase em destaque e retome de onde quiser.</p>
     </div>
@@ -5408,7 +5408,7 @@ ${material}
     } else if (missed.length) card.append(edMissedCard(missed));
     blocks.forEach((b, i) => card.append(blockBox(view, i, b)));
     card.append(el('div', { id: 'edReview' }));
-    card.append(el('div', { class: 'q-actions' }, el('button', { type: 'button', class: 'primary', text: '🍅 Começar com Pomodoro', onclick: () => hooks.pomoStart?.() }), el('button', { type: 'button', text: '⏰ Lembrete', onclick: () => edReminderPanel() }), el('button', { type: 'button', text: '🔁 Revisão', onclick: () => { $('edReview').dataset.open = ''; edOpenReview(); } }), el('button', { type: 'button', text: '⚙ Edital, vaga e cronograma', onclick: () => { $('edSetup').open = true; $('edSetup').scrollIntoView({ behavior: 'smooth', block: 'start' }); } })));
+    card.append(el('div', { class: 'q-actions' }, el('button', { type: 'button', class: 'primary', text: '🍅 Começar com Pomodoro', onclick: () => hooks.pomoStart?.() }), el('button', { type: 'button', text: '⏰ Lembrete', onclick: () => edReminderPanel() }), el('button', { type: 'button', text: '📟 Dia no Kindle', onclick: () => hooks.kindleDay(view, blocks) }), el('button', { type: 'button', text: '🔁 Revisão', onclick: () => { $('edReview').dataset.open = ''; edOpenReview(); } }), el('button', { type: 'button', text: '⚙ Edital, vaga e cronograma', onclick: () => { $('edSetup').open = true; $('edSetup').scrollIntoView({ behavior: 'smooth', block: 'start' }); } })));
     box.replaceChildren(card);
   }
   edRenderVagas(); edRenderDetail(); edRenderToday();
@@ -6251,60 +6251,112 @@ ${t.text}
     }
     return out.length ? out : [{ title: fallbackTitle, paras: ['(sem texto)'] }];
   }
-  async function buildEpub() {
-    const doc = libDoc(lib.activeId);
-    const title = (doc?.name || state.fileName || 'Texto de estudo').replace(/\.(pdf|txt|md)$/i, '');
-    const text = doc?.text || els.textInput.value || state.blocks.map(b => b.text).join(' ');
-    if (!text.trim()) throw new Error('abra um arquivo primeiro');
-    const chapters = textToChapters(text, title).map((c, i) => ({ id: 'cap' + (i + 1), title: c.title, body: `<h2>${xmlEsc(c.title)}</h2>` + c.paras.map(p => `<p>${xmlEsc(p)}</p>`).join('\n') }));
-    let cards = []; try { cards = JSON.parse(loadSetting('cards-' + (lib.activeId || docKey()), '[]')) || []; } catch (_) {}
+  // Capa em PNG (desenhada no próprio aparelho): título, subtítulo e data, em preto e branco para tela de tinta.
+  async function epubCover(title, subtitle) {
+    const W = 1200, H = 1800, cv = document.createElement('canvas'); cv.width = W; cv.height = H;
+    const g = cv.getContext('2d');
+    g.fillStyle = '#ffffff'; g.fillRect(0, 0, W, H);
+    g.fillStyle = '#111111'; g.fillRect(0, 0, W, 260);
+    g.fillStyle = '#ffffff'; g.font = 'bold 64px Georgia, serif'; g.textAlign = 'center'; g.fillText('LEITOR DE ESTUDO ATIVO', W / 2, 160);
+    const wrap = (text, font, size, maxW, y0, lh, max) => {
+      g.font = `${font} ${size}px Georgia, serif`; const words = String(text).split(/\s+/); let line = '', y = y0, n = 0;
+      for (const w of words) { const t = line ? line + ' ' + w : w; if (g.measureText(t).width > maxW && line) { g.fillText(line, W / 2, y); y += lh; line = w; if (++n >= max - 1) break; } else line = t; }
+      if (line) { g.fillText(line, W / 2, y); y += lh; } return y;
+    };
+    g.fillStyle = '#111111';
+    let y = wrap(title, 'bold', 96, W - 160, 620, 118, 6);
+    g.fillRect(W / 2 - 160, y + 10, 320, 8);
+    if (subtitle) wrap(subtitle, 'normal', 52, W - 200, y + 120, 70, 6);
+    g.font = 'normal 44px Georgia, serif'; g.fillText(new Date().toLocaleDateString('pt-BR', { day: '2-digit', month: 'long', year: 'numeric' }), W / 2, H - 140);
+    g.strokeStyle = '#111111'; g.lineWidth = 10; g.strokeRect(40, 300, W - 80, H - 360);
+    return new Promise(r => cv.toBlob(r, 'image/png'));
+  }
+  // parts: [{title, text}] (texto com "## " vira capítulos). cards/erros entram no fim.
+  async function makeEpub({ title, subtitle, parts, cards = [], erros = [] }) {
+    const chapters = [];
+    parts.forEach(pt => textToChapters(pt.text, pt.title).forEach(c => chapters.push({ id: 'cap' + (chapters.length + 1), title: c.title === pt.title || !pt.group ? c.title : `${pt.group} – ${c.title}`, body: `<h2>${xmlEsc(c.title)}</h2>` + (pt.intro && c === textToChapters(pt.text, pt.title)[0] ? pt.intro : '') + c.paras.map(p => `<p>${xmlEsc(p)}</p>`).join('\n') })));
     if (cards.length) chapters.push({ id: 'flashcards', title: `Flashcards (${cards.length})`, body: `<h2>Flashcards</h2><p class="hint">Leia a pergunta, responda de cabeça e só então leia a resposta.</p>` +
       cards.map((c, i) => `<div class="card"><p class="q"><b>${i + 1}.</b> ${xmlEsc(c.frente)}</p><p class="a">↳ ${xmlEsc(c.verso).replace(/\n/g, '<br/>')}</p></div>`).join('\n') });
-    const erros = loadErros().filter(e => e.doc === (lib.activeId || docKey()) || e.docName === doc?.name);
     if (erros.length) {
       const L = (q, l) => (q.alternativas || []).find(a => String(a.letra || '').trim().toUpperCase().charAt(0) === l)?.texto || '';
       chapters.push({ id: 'erros', title: `Caderno de erros (${erros.length})`, body: '<h2>Caderno de erros</h2><p class="hint">Questões que você errou. Responda antes de ver o gabarito, no fim deste capítulo.</p>' +
         erros.map((e, i) => `<div class="card"><p class="q"><b>${i + 1}.</b> ${xmlEsc(e.q.enunciado)}</p>` + (e.q.alternativas || []).map(a => `<p class="alt">${xmlEsc(a.letra)}) ${xmlEsc(a.texto)}</p>`).join('') + '</div>').join('\n') +
         '<h3>Gabarito comentado</h3>' + erros.map((e, i) => { const c = String(e.q.correta || '').trim().toUpperCase().charAt(0); return `<p><b>${i + 1}. ${c})</b> ${xmlEsc(L(e.q, c))}${e.q.localizar?.explicacao ? ' — ' + xmlEsc(e.q.localizar.explicacao) : ''}</p>`; }).join('\n') });
     }
-    const uid = 'leitor-' + (lib.activeId || Date.now());
+    const uid = 'leitor-' + Date.now().toString(36);
     const now = new Date().toISOString().replace(/\.\d+Z$/, 'Z');
+    const cover = await epubCover(title, subtitle);
     const opf = `<?xml version="1.0" encoding="utf-8"?>
 <package xmlns="http://www.idpf.org/2007/opf" version="3.0" unique-identifier="uid" xml:lang="pt-BR">
-<metadata xmlns:dc="http://purl.org/dc/elements/1.1/"><dc:identifier id="uid">${xmlEsc(uid)}</dc:identifier><dc:title>${xmlEsc(title)}</dc:title><dc:language>pt-BR</dc:language><dc:creator>Leitor de Estudo Ativo</dc:creator><meta property="dcterms:modified">${now}</meta></metadata>
+<metadata xmlns:dc="http://purl.org/dc/elements/1.1/"><dc:identifier id="uid">${xmlEsc(uid)}</dc:identifier><dc:title>${xmlEsc(title)}</dc:title><dc:language>pt-BR</dc:language><dc:creator>Leitor de Estudo Ativo</dc:creator>${subtitle ? `<dc:description>${xmlEsc(subtitle)}</dc:description>` : ''}<meta property="dcterms:modified">${now}</meta><meta name="cover" content="capa-img"/></metadata>
 <manifest><item id="nav" href="nav.xhtml" media-type="application/xhtml+xml" properties="nav"/><item id="css" href="estilo.css" media-type="text/css"/><item id="ncx" href="toc.ncx" media-type="application/x-dtbncx+xml"/>
+<item id="capa-img" href="capa.png" media-type="image/png" properties="cover-image"/><item id="capa" href="capa.xhtml" media-type="application/xhtml+xml"/>
 ${chapters.map(c => `<item id="${c.id}" href="${c.id}.xhtml" media-type="application/xhtml+xml"/>`).join('\n')}</manifest>
-<spine toc="ncx">${chapters.map(c => `<itemref idref="${c.id}"/>`).join('')}</spine></package>`;
+<spine toc="ncx"><itemref idref="capa" linear="yes"/>${chapters.map(c => `<itemref idref="${c.id}"/>`).join('')}</spine></package>`;
     const nav = xhtml('Sumário', `<nav epub:type="toc" id="toc"><h1>Sumário</h1><ol>${chapters.map(c => `<li><a href="${c.id}.xhtml">${xmlEsc(c.title)}</a></li>`).join('')}</ol></nav>`);
     const ncx = `<?xml version="1.0" encoding="utf-8"?><ncx xmlns="http://www.daisy.org/z3986/2005/ncx/" version="2005-1"><head><meta name="dtb:uid" content="${xmlEsc(uid)}"/></head><docTitle><text>${xmlEsc(title)}</text></docTitle><navMap>${chapters.map((c, i) => `<navPoint id="n${i + 1}" playOrder="${i + 1}"><navLabel><text>${xmlEsc(c.title)}</text></navLabel><content src="${c.id}.xhtml"/></navPoint>`).join('')}</navMap></ncx>`;
-    const css = 'body{font-family:serif;line-height:1.5}h2{margin-top:0}p{margin:0 0 .7em;text-indent:0}.card{margin:0 0 1.2em;padding-bottom:.6em;border-bottom:1px solid #999}.q{font-weight:bold}.a,.alt{margin-left:1em}.hint{font-style:italic}';
+    const css = 'body{font-family:serif;line-height:1.5}h2{margin-top:0}p{margin:0 0 .7em;text-indent:0}.card{margin:0 0 1.2em;padding-bottom:.6em;border-bottom:1px solid #999}.q{font-weight:bold}.a,.alt{margin-left:1em}.hint{font-style:italic}.topicos{margin:0 0 1em}.capa{text-align:center;margin:0;padding:0}.capa img{max-width:100%;max-height:100%}';
     const Zip = await loadZip();
     const zip = new Zip();
     zip.file('mimetype', 'application/epub+zip', { compression: 'STORE' });
     zip.file('META-INF/container.xml', '<?xml version="1.0"?><container version="1.0" xmlns="urn:oasis:names:tc:opendocument:xmlns:container"><rootfiles><rootfile full-path="OEBPS/content.opf" media-type="application/oebps-package+xml"/></rootfiles></container>');
     zip.file('OEBPS/content.opf', opf); zip.file('OEBPS/nav.xhtml', nav); zip.file('OEBPS/toc.ncx', ncx); zip.file('OEBPS/estilo.css', css);
+    zip.file('OEBPS/capa.png', cover); zip.file('OEBPS/capa.xhtml', xhtml(title, `<div class="capa"><img src="capa.png" alt="${xmlEsc(title)}"/></div>`));
     for (const c of chapters) zip.file(`OEBPS/${c.id}.xhtml`, xhtml(c.title, c.body));
     const blob = await zip.generateAsync({ type: 'blob', mimeType: 'application/epub+zip', compression: 'DEFLATE' });
-    const fname = title.replace(/[\\/:*?"<>|]+/g, ' ').replace(/\s+/g, ' ').trim().slice(0, 80) + '.epub';
+    const fname = title.replace(/(\d{1,2})\/(\d{1,2})/g, '$1-$2').replace(/[\\/:*?"<>|]+/g, ' ').replace(/\s+/g, ' ').trim().slice(0, 90) + '.epub';
     return { blob, fname, chapters: chapters.length, cards: cards.length, erros: erros.length };
   }
+  async function buildEpub() {
+    const doc = libDoc(lib.activeId);
+    const title = (doc?.name || state.fileName || 'Texto de estudo').replace(/\.(pdf|txt|md)$/i, '').replace(/(\d{1,2})\/(\d{1,2})/g, '$1-$2');
+    const text = doc?.text || els.textInput.value || state.blocks.map(b => b.text).join(' ');
+    if (!text.trim()) throw new Error('abra um arquivo primeiro');
+    let cards = []; try { cards = JSON.parse(loadSetting('cards-' + (lib.activeId || docKey()), '[]')) || []; } catch (_) {}
+    const erros = loadErros().filter(e => e.doc === (lib.activeId || docKey()) || e.docName === doc?.name);
+    return makeEpub({ title, subtitle: doc ? colOf(doc).split('›').pop().trim() : '', parts: [{ title, text }], cards, erros });
+  }
+  async function saveEpub(r) {
+    const extra = [r.cards ? `${r.cards} ${r.cards === 1 ? 'flashcard' : 'flashcards'}` : '', r.erros ? `${r.erros} ${r.erros === 1 ? 'questão' : 'questões'} do caderno de erros` : ''].filter(Boolean).join(' e ');
+    const how = 'Agora mande para o Kindle: no app Kindle (Enviar para o Kindle) ou no site amazon.com/sendtokindle.';
+    const dl = window.claude?.use ? await window.claude.use('downloads').catch(() => null) : null;
+    if (dl) {
+      try { await dl.save({ filename: r.fname, data: r.blob }); return `📟 “${r.fname}” salvo${extra ? ' (com ' + extra + ')' : ''}. ${how}`; }
+      catch (e) { if (e?.code === 'declined') return 'Download cancelado.'; throw new Error(e?.code || e?.message || 'erro ao salvar'); }
+    }
+    const a = document.createElement('a'); a.href = URL.createObjectURL(r.blob); a.download = r.fname;
+    document.body.append(a); a.click(); a.remove(); setTimeout(() => URL.revokeObjectURL(a.href), 60000);
+    return `📟 “${r.fname}” baixado${extra ? ' (com ' + extra + ')' : ''}. ${how}`;
+  }
+  // 📟 Estudo do dia inteiro: todas as matérias do dia do cronograma num só livro.
+  hooks.kindleDay = async (day, blocks) => {
+    const plan = ed.data.plan; if (!plan) return;
+    const study = blocks.filter(b => !b.moved && !['revisão da semana', 'simulado', 'revisão final'].includes(b.tipo));
+    if (!study.length) { edStatus('Este dia não tem matérias de teoria ou questões para levar ao Kindle.', true); return; }
+    const missing = study.filter(b => !(b.docId && libDoc(b.docId)));
+    if (missing.length) {
+      if (!ile.sample) { edStatus(`Faltam os materiais de ${missing.length} ${missing.length === 1 ? 'matéria' : 'matérias'}. Gere com “✨ Gerar material do dia” (precisa da IA) e tente de novo.`, true); return; }
+      for (const [k, b] of missing.entries()) { edStatus(`Gerando o material ${k + 1} de ${missing.length}: ${b.materia}…`); if (!(await edMaterial(b))) { edStatus('Não foi possível gerar todos os materiais. Tente de novo.', true); return; } }
+      edSave(); edRenderToday();
+    }
+    edStatus('Montando o livro do dia para o Kindle…');
+    const parts = study.map(b => {
+      const d = libDoc(b.docId);
+      return { group: b.materia, title: `${b.materia}${b.tipo !== 'teoria' ? ' (' + b.tipo + ')' : ''}`, text: `## ${b.materia}\n\nTópicos do edital: ${b.topicos.join('; ')}.\n\n${d.text}` };
+    });
+    const ids = new Set(study.map(b => b.docId));
+    const cards = [...ids].flatMap(id => { try { return JSON.parse(loadSetting('cards-' + id, '[]')) || []; } catch (_) { return []; } });
+    const erros = loadErros().filter(e => ids.has(e.doc));
+    const dt = new Date(day + 'T12:00'), dd = `${pad2(dt.getDate())}-${pad2(dt.getMonth() + 1)}`;
+    try {
+      const r = await makeEpub({ title: `Estudo de ${dd} • ${study.map(b => b.materia).join(', ')}`.slice(0, 140), subtitle: `${plan.vaga || ''} • ${study.length} ${study.length === 1 ? 'matéria' : 'matérias'}`, parts, cards, erros });
+      edStatus(await saveEpub(r));
+    } catch (e) { edStatus('Não foi possível gerar o EPUB: ' + (e?.message || e), true); }
+  };
   $('btnKindle').addEventListener('click', async () => {
     const btn = $('btnKindle'); btn.disabled = true;
-    try {
-      status('Gerando o EPUB para o Kindle…');
-      const r = await buildEpub();
-      const extra = [r.cards ? `${r.cards} ${r.cards === 1 ? 'flashcard' : 'flashcards'}` : '', r.erros ? `${r.erros} ${r.erros === 1 ? 'questão' : 'questões'} do caderno de erros` : ''].filter(Boolean).join(' e ');
-      const how = 'Agora mande para o Kindle: no app Kindle ou no site amazon.com/sendtokindle, ou pelo e-mail @kindle.com do seu aparelho.';
-      const dl = window.claude?.use ? await window.claude.use('downloads').catch(() => null) : null;
-      if (dl) {
-        try { await dl.save({ filename: r.fname, data: r.blob }); status(`📟 “${r.fname}” salvo${extra ? ' (com ' + extra + ')' : ''}. ${how}`); }
-        catch (e) { status(e?.code === 'declined' ? 'Download cancelado.' : 'Não foi possível salvar o arquivo aqui: ' + (e?.code || e?.message || 'erro'), e?.code !== 'declined'); }
-        return;
-      }
-      const a = document.createElement('a'); a.href = URL.createObjectURL(r.blob); a.download = r.fname;
-      document.body.append(a); a.click(); a.remove(); setTimeout(() => URL.revokeObjectURL(a.href), 60000);
-      status(`📟 “${r.fname}” baixado${extra ? ' (com ' + extra + ')' : ''}. ${how}`);
-    } catch (e) { status('Não foi possível gerar o EPUB: ' + (e?.message || e), true); }
+    try { status('Gerando o EPUB para o Kindle…'); status(await saveEpub(await buildEpub())); }
+    catch (e) { status('Não foi possível gerar o EPUB: ' + (e?.message || e), true); }
     finally { btn.disabled = false; }
   });
 
