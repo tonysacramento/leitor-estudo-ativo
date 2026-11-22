@@ -16,7 +16,7 @@
   <meta name="mobile-web-app-capable" content="yes">
   <meta name="apple-mobile-web-app-title" content="Leitor Ativo">
   <meta name="apple-mobile-web-app-status-bar-style" content="default">
-  <title>Leitor de Estudo Ativo • Versão 9.1</title>
+  <title>Leitor de Estudo Ativo • Versão 9.2</title>
   <!-- PDF.js (módulo moderno) é carregado somente ao abrir PDFs. Biblioteca e worker usam a mesma versão. -->
   <style>
     :root {
@@ -560,7 +560,7 @@
 <main>
   <header class="header">
     <div>
-      <div class="eyebrow">Estudo com áudio • v9.1</div>
+      <div class="eyebrow">Estudo com áudio • v9.2</div>
       <h1>Leitor de Estudo Ativo</h1>
       <p class="subtitle">Ouça, acompanhe a frase em destaque e retome de onde quiser.</p>
     </div>
@@ -6333,6 +6333,14 @@ ${chapters.map(c => `<item id="${c.id}" href="${c.id}.xhtml" media-type="applica
   async function saveEpub(r) {
     const extra = [r.cards ? `${r.cards} ${r.cards === 1 ? 'flashcard' : 'flashcards'}` : '', r.erros ? `${r.erros} ${r.erros === 1 ? 'questão' : 'questões'} do caderno de erros` : ''].filter(Boolean).join(' e ');
     const how = 'Agora mande para o Kindle: no app Kindle (Enviar para o Kindle) ou no site amazon.com/sendtokindle.';
+    // Atalho: no celular, abre direto o menu Compartilhar; escolhendo “Kindle”, o livro já vai para a conta.
+    try {
+      const file = new File([r.blob], r.fname, { type: 'application/epub+zip' });
+      if (navigator.canShare?.({ files: [file] })) {
+        await navigator.share({ files: [file], title: r.fname.replace(/\.epub$/, '') });
+        return `📟 “${r.fname}” enviado pelo menu Compartilhar. Se escolheu o Kindle, confirme “Enviar” e ele aparece na biblioteca em alguns minutos.`;
+      }
+    } catch (e) { if (e?.name === 'AbortError') return 'Envio cancelado.'; /* sem compartilhar aqui: segue para o download */ }
     const dl = window.claude?.use ? await window.claude.use('downloads').catch(() => null) : null;
     if (dl) {
       try { await dl.save({ filename: r.fname, data: r.blob }); return `📟 “${r.fname}” salvo${extra ? ' (com ' + extra + ')' : ''}. ${how}`; }
