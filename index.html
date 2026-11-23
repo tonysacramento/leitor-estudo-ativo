@@ -1,3 +1,4 @@
+<!doctype html><html><head><meta charset=utf8><meta name=viewport content="width=device-width,initial-scale=1"><style>:root{color-scheme:light}body{margin:0;padding:0;font:14px -apple-system,BlinkMacSystemFont,sans-serif;background:#fff;color:#000}img{max-width:100%}[hidden]:not([hidden=until-found i]){display:none!important}</style></head><body>
 <!DOCTYPE html>
 <html lang="pt-BR">
 <head>
@@ -16,7 +17,7 @@
   <meta name="mobile-web-app-capable" content="yes">
   <meta name="apple-mobile-web-app-title" content="Leitor Ativo">
   <meta name="apple-mobile-web-app-status-bar-style" content="default">
-  <title>Leitor de Estudo Ativo • Versão 9.2</title>
+  <title>Leitor de Estudo Ativo • Versão 9.10</title>
   <!-- PDF.js (módulo moderno) é carregado somente ao abrir PDFs. Biblioteca e worker usam a mesma versão. -->
   <style>
     :root {
@@ -560,7 +561,7 @@
 <main>
   <header class="header">
     <div>
-      <div class="eyebrow">Estudo com áudio • v9.2</div>
+      <div class="eyebrow">Estudo com áudio • v9.10</div>
       <h1>Leitor de Estudo Ativo</h1>
       <p class="subtitle">Ouça, acompanhe a frase em destaque e retome de onde quiser.</p>
     </div>
@@ -2013,9 +2014,25 @@ ${text}
     const s = String(value || '');
     const start = s.indexOf('{'), end = s.lastIndexOf('}');
     if (start < 0 || end <= start) throw new Error('Resposta em formato inesperado.');
-    return JSON.parse(s.slice(start, end + 1));
+    const raw = s.slice(start, end + 1);
+    try { return JSON.parse(raw); } catch (err) {
+      // Textos longos às vezes vêm com quebras de linha cruas dentro das aspas ou vírgula sobrando: conserta e tenta de novo.
+      let out = '', inStr = false, esc = false;
+      for (const ch of raw) {
+        if (inStr) {
+          if (esc) { esc = false; out += ch; continue; }
+          if (ch === '\\') { esc = true; out += ch; continue; }
+          if (ch === '"') { inStr = false; out += ch; continue; }
+          if (ch === '\n') { out += '\\n'; continue; }
+          if (ch === '\r') continue;
+          if (ch === '\t') { out += '\\t'; continue; }
+          out += ch;
+        } else { if (ch === '"') inStr = true; out += ch; }
+      }
+      try { return JSON.parse(out.replace(/,\s*([}\]])/g, '$1')); } catch (_) { throw err; }
+    }
   }
-  async function ask(prompt, label) {
+  async function ask(prompt, label, opt = {}) {
     ile.controller?.abort();
     const controller = new AbortController();
     ile.controller = controller;
@@ -2024,7 +2041,8 @@ ${text}
     try {
       const result = await ile.sample(prompt, {
         signal: controller.signal, modelTier: 'default',
-        onText: ({ text }) => { if (text && text !== 'Thinking...') ileStatus(`${label}… ${Math.min(99, Math.round(text.length / 60))}%`); }
+        // Progresso pelo tamanho esperado da resposta; na reta final mostra as palavras subindo, para não parecer travado.
+        onText: ({ text }) => { if (!text || text === 'Thinking...') return; const p = Math.round(text.length / (opt.expect || 6000) * 100); ileStatus(p < 95 ? `${label}… ${p}%` : `${label}… finalizando (≈ ${Math.round(text.length / 6.5)} palavras)`); }
       });
       if (controller.signal.aborted) return null;
       return parseJson(result?.text);
@@ -4717,14 +4735,14 @@ ${t.text}
   };
   const edSave = () => saveSetting('concurso', JSON.stringify(ed.data));
   function edStatus(msg, error = false) { ed.statusEl.textContent = msg; ed.statusEl.classList.toggle('error', !!error); }
-  async function edAsk(prompt, label) {
+  async function edAsk(prompt, label, opt) {
     if (!ile.sample && gem.key) { ile.sample = gemSample; ile.ready = true; }
     if (!ile.sample) { $('edVagas').replaceChildren(promptCard(prompt)); edStatus(ile.needLogin ? '🔐 Entre com a sua conta do Claude (botão “Entrar” no topo) e recarregue a página para usar a IA.' : 'Sem IA neste aparelho: copie o prompt para o Claude ou configure a chave do Gemini.', true); return null; }
     if (ed.busy) { edStatus('Aguarde a etapa em andamento terminar.', true); return null; }
     ed.busy = true;
     const prev = ile.statusEl; ile.statusEl = ed.statusEl;
     document.querySelectorAll('#concurso button.primary').forEach(b => { b.disabled = true; });
-    try { return await ask(prompt, label); }
+    try { return await ask(prompt, label, opt); }
     finally { ile.statusEl = prev; ed.busy = false; document.querySelectorAll('#concurso button.primary').forEach(b => { b.disabled = false; }); }
   }
   // Editais são longos: envia só os trechos relevantes (janelas com as palavras-chave), na ordem original.
@@ -5068,9 +5086,28 @@ ${section}
     els.readerView.scrollIntoView({ behavior: 'smooth', block: 'center' });
     status(`“${doc.name}” aberto no trecho sobre: ${topic.slice(0, 80)}`);
   }
-  async function edMaterial(block) {
+  // Material de referência para gerar o material do dia: só arquivos que tratam de fato dos tópicos.
+  // Fora: o edital (cita todas as matérias), índices/apostilas que citam muitas matérias e o que o próprio app gerou.
+  function edRefDocs(block) {
+    const topicKeys = [...new Set((block.topicos || []).flatMap(t => plain(t).split(' ').filter(w => w.length > 4)))].slice(0, 15);
+    if (!topicKeys.length) return [];
+    const gen = /› (Material diário|Livros do dia|Revisões)$/;
+    const subjects = [...new Set(Object.values(ed.data.plan?.days || {}).flat().map(b => plain(b?.materia || '')))].filter(s => s.length > 6);
+    const out = [];
+    for (const doc of lib.docs) {
+      if (doc.pending || !doc.text || doc.id === ed.data.docId || doc.name === ed.data.source || gen.test(colOf(doc))) continue;
+      const t = plain(doc.text.slice(0, 400000));
+      if (subjects.length >= 4 && subjects.filter(s => t.includes(s)).length >= 4) continue;
+      let hits = 0, present = 0;
+      for (const k of topicKeys) { let i = t.indexOf(k), n = 0; while (i >= 0 && n < 50) { n++; i = t.indexOf(k, i + k.length); } hits += n; if (n) present++; }
+      if (present < Math.max(2, Math.ceil(topicKeys.length * 0.4)) || hits < 6) continue;
+      out.push({ doc, score: hits / Math.sqrt(t.length / 1000 + 1) + present * 3 });
+    }
+    return out.sort((a, b) => b.score - a.score).slice(0, 3).map(x => x.doc);
+  }
+  async function edMaterial(block, opt = {}) {
     const vaga = ed.data.plan?.vaga || '';
-    const ref = libMatches(block.materia + ' ' + block.topicos.join(' ')).map(m => m.doc);
+    const ref = edRefDocs(block);
     const refText = ref.map(d => edSlice(d.text, block.topicos.flatMap(t => plain(t).split(' ').filter(w => w.length > 5)).slice(0, 15), 9000, 0)).join('\n[…]\n').slice(0, 25000);
     const data = await edAsk(`Você é professor de cursinho para concursos públicos (${vaga}). Escreva um MATERIAL DE ESTUDO para hoje sobre:
 Disciplina: ${block.materia}
@@ -5078,16 +5115,17 @@ Tópicos do edital: ${block.topicos.join('; ')}
 - 1.200 a 1.800 palavras, em português do Brasil, nível de prova de concurso.
 - Estrutura: títulos curtos; explicação clara; base legal/normativa quando houver (cite o dispositivo); exemplos; "Pegadinhas de prova"; e ao fim "Pontos-chave" (5 a 8 frases curtas).
 - Texto corrido, bom para ouvir em voz alta (sem tabelas).
-${refText ? '- Baseie-se prioritariamente no MATERIAL DE REFERÊNCIA do aluno abaixo; complete com conhecimento consolidado, sem inventar normas.' : '- Use apenas conhecimento consolidado; não invente normas, números ou artigos.'}
+${refText ? '- Baseie-se prioritariamente no MATERIAL DE REFERÊNCIA do aluno abaixo; complete com conhecimento consolidado, sem inventar normas. Se ele não tratar destes tópicos, ignore-o sem comentar: nunca escreva sobre o material de referência no texto.' : '- Use apenas conhecimento consolidado; não invente normas, números ou artigos.'}
 Responda APENAS com JSON válido: {"titulo":"string","secoes":[{"titulo":"string","texto":"string"}]}
-${refText ? `\nMATERIAL DE REFERÊNCIA:\n"""\n${refText}\n"""` : ''}`, `Preparando o material de “${block.materia}”`);
+${refText ? `\nMATERIAL DE REFERÊNCIA:\n"""\n${refText}\n"""` : ''}`, `Preparando o material de “${block.materia}”`, { expect: 13000 });
     if (!data) return;
     const secs = (data.secoes || []).filter(x => x?.texto);
     if (!secs.length) { edStatus('O material veio vazio. Tente de novo.', true); return; }
     const text = secs.map(x => `## ${x.titulo || ''}\n\n${x.texto}`).join('\n\n');
     const col = `${(ed.data.concurso?.orgao || 'Concurso').slice(0, 40)} › Material diário`;
-    const doc = libAdd(`${ed.data.view.split('-').reverse().slice(0, 2).join('/')} • ${block.materia}: ${data.titulo || block.topicos[0]}`.slice(0, 120), { text, pdfPages: null, ignored: [] }, col);
+    const doc = libAdd(`${(opt.day || ed.data.view).split('-').reverse().slice(0, 2).join('/')} • ${block.materia}: ${data.titulo || block.topicos[0]}`.slice(0, 120), { text, pdfPages: null, ignored: [] }, col);
     block.docId = doc.id; edSave();
+    if (opt.silent) return doc; // Livro do dia/atraso: gera em sequência sem trocar de tela.
     await libSwitch(doc.id, { quiet: true });
     edRenderToday();
     els.readerView.scrollIntoView({ behavior: 'smooth', block: 'center' });
@@ -5302,7 +5340,7 @@ ${material}
       el('p', { class: 'hint', text: 'Você estudou e esqueceu de marcar? Marque o que estudou. O que não estudou volta para o cronograma a partir de hoje.' }),
       el('div', { class: 'missed-list' }, ...missed.map((m, k) => el('label', { class: 'toggle' }, checks[k], ` ${fmtDay(m.d)} • ${m.b.materia}${m.b.topicos?.[0] ? ' – ' + m.b.topicos[0] : ''} (${m.b.tipo})`))),
       el('div', { class: 'q-actions' },
-        el('button', { type: 'button', class: 'primary', text: '📚 Quero estudar agora', onclick: () => { ed.catchup = true; edRenderToday(); $('edToday')?.scrollIntoView({ behavior: 'smooth', block: 'start' }); edStatus('Recuperando o atraso: os blocos atrasados estão logo abaixo.'); } }),
+        el('button', { type: 'button', class: 'primary', text: '📚 Quero estudar agora', onclick: () => { ed.catchup = true; ed.bookAuto = true; edRenderToday(); $('edToday')?.scrollIntoView({ behavior: 'smooth', block: 'start' }); edStatus(ile.sample || gem.key ? '📚 Recuperando o atraso: montando o livro com todo o conteúdo. Os blocos atrasados estão logo abaixo.' : 'Recuperando o atraso: os blocos atrasados estão logo abaixo. Para montar o livro, entre na sua conta do Claude.'); } }),
         el('button', { type: 'button', text: '✓ Sim, estudei tudo', onclick: () => finish(true) }),
         el('button', { type: 'button', text: '↪ Não estudei: replanejar', onclick: () => finish(false) }),
         el('button', { type: 'button', text: 'Salvar o que marquei', onclick: () => finish(null) })));
@@ -5311,6 +5349,155 @@ ${material}
   let edLastDay = isoDay(new Date());
   setInterval(() => { const t = isoDay(new Date()); if (t !== edLastDay) { edLastDay = t; if (ed.data.plan) edRenderToday(); } }, 60000);
   document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'visible') { const t = isoDay(new Date()); if (t !== edLastDay) { edLastDay = t; if (ed.data.plan) edRenderToday(); } } });
+
+  // ===================== 📚 Livro do dia / do atraso =====================
+  // Junta os materiais do dia (ou dos blocos atrasados) num livro: ler, ouvir com a frase em destaque
+  // (leitura + áudio juntos, bom para metrô e trem) ou mandar para o Kindle. Dá para escolher uma matéria só.
+  const BOOK_SKIP = ['revisão da semana', 'simulado', 'revisão final'];
+  async function edEnsureMaterials(items) {
+    const missing = items.filter(it => !(it.b.docId && libDoc(it.b.docId)));
+    if (!missing.length) return true;
+    if (!ile.sample && gem.key) { ile.sample = gemSample; ile.ready = true; }
+    if (!ile.sample) { edStatus(`Faltam os materiais de ${missing.length} ${missing.length === 1 ? 'matéria' : 'matérias'}. Gerar o material precisa da IA: entre na sua conta do Claude (ou configure a chave do Gemini) e tente de novo.`, true); return false; }
+    // Cada matéria tem 2 tentativas; se uma falhar, segue com as outras (o livro sai com o que deu certo).
+    const failed = [];
+    for (const [k, it] of missing.entries()) {
+      let ok = false, why = '';
+      // Conexão instável (metrô, troca de Wi-Fi/4G, tela apagada): até 4 tentativas, esperando a internet
+      // voltar e a tela estar acesa, com pausas crescentes entre elas.
+      for (let attempt = 1; attempt <= 4 && !ok; attempt++) {
+        if (attempt > 1) {
+          const wait = [0, 3, 8, 15][attempt - 1];
+          for (let sLeft = wait; sLeft > 0; sLeft--) { edStatus(`📚 A conexão caiu em “${it.b.materia}”. Nova tentativa (${attempt} de 4) em ${sLeft} s…`); await new Promise(r => setTimeout(r, 1000)); }
+          if (!navigator.onLine) { edStatus('📴 Sem internet. Esperando a conexão voltar para continuar o livro…'); await new Promise(r => window.addEventListener('online', r, { once: true })); }
+          if (document.visibilityState === 'hidden') await new Promise(r => { const f = () => { if (document.visibilityState === 'visible') { document.removeEventListener('visibilitychange', f); r(); } }; document.addEventListener('visibilitychange', f); });
+        }
+        edStatus(`📚 Montando o livro: material ${k + 1} de ${missing.length} (${it.b.materia})${attempt > 1 ? ` — tentativa ${attempt} de 4` : ''}…`);
+        ok = !!(await edMaterial(it.b, { silent: true, day: it.d }));
+        if (!ok) {
+          const t = (ed.statusEl?.textContent || '').trim(); why = t.startsWith('📚') ? '' : t;
+          // Erro que não melhora tentando de novo (sem conta, sem permissão): para logo.
+          if (/permiss|not_granted|Entre com a sua conta|sem IA/i.test(why)) break;
+        }
+      }
+      if (!ok) failed.push({ it, why });
+    }
+    edSave();
+    if (failed.length) {
+      edStatus(`⚠ Não foi possível gerar ${failed.length} de ${missing.length}: ${failed.map(f => f.it.b.materia).join(', ')}.${failed[0].why ? ' Motivo: ' + failed[0].why : ''} Toque em “🔄 Tentar de novo” no cartão do livro.`, true);
+      return false;
+    }
+    edStatus(`✓ ${missing.length} ${missing.length === 1 ? 'material gerado e salvo' : 'materiais gerados e salvos'} na biblioteca.`);
+    return true;
+  }
+  const bookPartText = it => `## ${it.b.materia}${it.b.tipo !== 'teoria' ? ' (' + it.b.tipo + ')' : ''}\n\nTópicos do edital: ${it.b.topicos.join('; ')}.\n\n${libDoc(it.b.docId).text}`;
+  function edBookPanel(items, label, autoStart = false) {
+    const plan = ed.data.plan;
+    const study = items.filter(it => it?.b && !it.b.moved && !BOOK_SKIP.includes(it.b.tipo));
+    if (!study.length) return null;
+    const pick = el('select', { 'aria-label': 'O que ler ou ouvir' },
+      new Option(`📚 Todo o conteúdo (${study.length} ${study.length === 1 ? 'matéria' : 'matérias'})`, 'all'),
+      ...study.map((it, k) => new Option(`${fmtDay(it.d)} • ${it.b.materia}${it.b.topicos?.[0] ? ' – ' + it.b.topicos[0] : ''}`.slice(0, 120), String(k))));
+    const chosen = () => pick.value === 'all' ? study : [study[Number(pick.value)]];
+    // Segunda caixa: uma seção (subtópico) dentro da matéria escolhida, a partir dos títulos “## ” do material.
+    const secPick = el('select', { 'aria-label': 'Seção da matéria' });
+    const secField = el('div', { class: 'field', style: 'margin-top:6px' }, el('span', { class: 'label', text: 'Seção da matéria' }), secPick);
+    const sectionsOf = it => {
+      const d = it?.b.docId && libDoc(it.b.docId); if (!d) return [];
+      return d.text.split(/^## /m).map(x => x.trim()).filter(Boolean).map(x => { const nl = x.indexOf('\n'); return nl < 0 ? null : { title: x.slice(0, nl).trim(), text: x.slice(nl + 1).trim() }; }).filter(x => x && x.title && x.text);
+    };
+    const drawSections = () => {
+      const it = pick.value === 'all' ? null : study[Number(pick.value)];
+      secField.style.display = it ? '' : 'none'; // .field usa display:flex, então o atributo hidden não basta
+      if (!it) return;
+      const secs = sectionsOf(it), keep = secPick.value;
+      secPick.replaceChildren(new Option(secs.length ? '📘 Toda a matéria' : '📘 Toda a matéria (as seções aparecem depois que o material for gerado)', 'all'), ...secs.map((x, k) => new Option(x.title.slice(0, 110), String(k))));
+      if ([...secPick.options].some(o => o.value === keep)) secPick.value = keep;
+    };
+    pick.addEventListener('change', () => { secPick.value = 'all'; drawSections(); });
+    const chosenSection = its => {
+      if (its.length !== 1 || pick.value === 'all' || secPick.value === 'all') return null;
+      return sectionsOf(its[0])[Number(secPick.value)] || null;
+    };
+    const info = el('p', { class: 'hint', style: 'margin:6px 0 0' });
+    const isReady = it => !!(it.b.docId && libDoc(it.b.docId));
+    let tried = false;
+    const retryBtn = el('button', { type: 'button', class: 'primary', text: '🔄 Tentar de novo', onclick: () => run(null, study) });
+    const showInfo = () => {
+      drawSections();
+      const n = study.filter(isReady).length, missingNames = study.filter(it => !isReady(it)).map(it => it.b.materia);
+      info.textContent = n === study.length ? '✓ Livro pronto: escolha ouvir, ler ou mandar para o Kindle.'
+        : tried ? `${n} de ${study.length} materiais prontos. Faltam: ${missingNames.join(', ')}. Toque em “🔄 Tentar de novo”${n ? ' ou use o que já está pronto' : ''}.`
+        : `${n} de ${study.length} materiais prontos. Os que faltam são gerados quando você escolher uma opção (usa a IA, leva alguns minutos).`;
+      retryBtn.style.display = tried && n < study.length ? '' : 'none';
+    };
+    showInfo();
+    const dd = new Date().toLocaleDateString('pt-BR', { day: '2-digit', month: '2-digit' });
+    const open = async (its, listen) => {
+      const sec = chosenSection(its);
+      const doc = sec ? libAdd(`${its[0].b.materia} • ${sec.title}`.slice(0, 120), { text: `## ${sec.title}\n\n${sec.text}`, pdfPages: null, ignored: [] }, `${(ed.data.concurso?.orgao || 'Concurso').slice(0, 40)} › Livros do dia`)
+        : its.length === 1 ? libDoc(its[0].b.docId)
+        : libAdd(`📚 ${label} ${dd} • ${its.length} matérias`.slice(0, 120), { text: its.map(bookPartText).join('\n\n'), pdfPages: null, ignored: [] }, `${(ed.data.concurso?.orgao || 'Concurso').slice(0, 40)} › Livros do dia`);
+      if (doc.id !== its[0]?.b.docId) saveSetting('bookparts-' + doc.id, JSON.stringify(its.map(it => it.b.docId)));
+      await libSwitch(doc.id, { quiet: true });
+      openBook();
+      if (listen) { try { playFrom(state.index); } catch (_) { /* toque ▶ no livro */ } }
+      edStatus(listen ? `🎧 “${doc.name}” tocando no modo livro, com a frase em destaque. Se o áudio não começar, toque ▶ no livro.` : `📖 “${doc.name}” aberto como livro e carregado no leitor. Toque ▶ no livro para ouvir; o “Enviar para o Kindle” do leitor manda este livro inteiro, com os flashcards.`);
+    };
+    const kindle = async its => {
+      edStatus('Montando o livro para o Kindle…');
+      const ids = new Set(its.map(it => it.b.docId));
+      const cards = [...ids].flatMap(id => { try { return JSON.parse(loadSetting('cards-' + id, '[]')) || []; } catch (_) { return []; } });
+      const erros = loadErros().filter(e => ids.has(e.doc));
+      const sec = chosenSection(its);
+      try {
+        const r = sec ? await makeEpub({ title: `${its[0].b.materia} • ${sec.title}`.slice(0, 140), subtitle: `${plan?.vaga || ''} • ${label} ${dd}`, parts: [{ group: its[0].b.materia, title: sec.title, text: `## ${sec.title}\n\n${sec.text}` }], cards, erros }) : await makeEpub({
+          title: `${label} ${dd.replace('/', '-')} • ${its.map(it => it.b.materia).join(', ')}`.slice(0, 140),
+          subtitle: `${plan?.vaga || ''} • ${its.length} ${its.length === 1 ? 'matéria' : 'matérias'}`,
+          parts: its.map(it => ({ group: it.b.materia, title: `${it.b.materia}${it.b.tipo !== 'teoria' ? ' (' + it.b.tipo + ')' : ''}`, text: bookPartText(it) })),
+          cards, erros });
+        edStatus(await saveEpub(r));
+      } catch (e) { edStatus('Não foi possível gerar o EPUB: ' + (e?.message || e), true); }
+    };
+    let busy = false;
+    const box = el('div', { class: 'block missed book-day' });
+    const run = async (fn, override) => {
+      if (busy) return; busy = true; let madeNew = false;
+      box.querySelectorAll('button, select').forEach(x => { x.disabled = true; });
+      try {
+        const its = override || chosen();
+        const had = its.filter(isReady).length;
+        const all = await edEnsureMaterials(its);
+        tried = true;
+        if (its.filter(isReady).length > had) madeNew = true;
+        const okIts = its.filter(isReady);
+        if (fn && okIts.length) {
+          await fn(okIts);
+          if (!all) edStatus(`${ed.statusEl?.textContent || ''} ⚠ ${its.length - okIts.length} ${its.length - okIts.length === 1 ? 'matéria ficou' : 'matérias ficaram'} de fora: toque em “🔄 Tentar de novo” no cartão do livro.`, true);
+        }
+      } finally {
+        busy = false; box.querySelectorAll('button, select').forEach(x => { x.disabled = false; }); showInfo();
+        // Materiais novos: redesenha os cartões dos blocos (mostram “Abrir material”), sem disparar a geração automática de novo.
+        if (madeNew) { ed.noAutoStart = true; try { edRenderToday(); } finally { ed.noAutoStart = false; } }
+      }
+    };
+    box.append(
+      el('h4', { text: `📚 ${label} como livro` }),
+      el('p', { class: 'hint', text: 'Leitura e áudio juntos: no modo livro a frase que está sendo lida fica em destaque. No metrô ou no trem, toque em Ouvir e acompanhe o texto quando puder.' }),
+      el('div', { class: 'field', style: 'margin-top:6px' }, el('span', { class: 'label', text: 'O que ler ou ouvir' }), pick),
+      secField,
+      info,
+      el('div', { class: 'q-actions' },
+        el('button', { type: 'button', class: 'primary', text: '🎧 Ouvir como livro', onclick: () => run(its => open(its, true)) }),
+        el('button', { type: 'button', text: '📖 Ler como livro', onclick: () => run(its => open(its, false)) }),
+        el('button', { type: 'button', text: '📟 Enviar para o Kindle', onclick: () => run(kindle) }),
+        retryBtn));
+    showInfo();
+    // “Quero estudar agora”: já começa a preparar todo o conteúdo.
+    if (autoStart === 'open' && !ed.noAutoStart) setTimeout(() => run(its => open(its, false)), 0);
+    else if (autoStart && !ed.noAutoStart && study.some(it => !(it.b.docId && libDoc(it.b.docId))) && (ile.sample || gem.key)) setTimeout(() => run(null), 0);
+    return box;
+  }
   function edRenderToday() {
     const plan = ed.data.plan, box = $('edToday');
     if (!plan) {
@@ -5403,12 +5590,15 @@ ${material}
           el('button', { type: 'button', class: 'primary', text: '🍅 Começar com Pomodoro', onclick: () => hooks.pomoStart?.() }),
           el('button', { type: 'button', text: '↪ Replanejar o que falta', onclick: () => { ed.catchup = false; const r = edReschedule(edMissed()); for (const m of missed) plan.asked[m.d] = true; edSave(); edRenderToday(); edStatus(`↪ Blocos restantes remarcados a partir de hoje.${r.extra ? ' Alguns ficaram como bloco extra perto da prova.' : ''}`); } }),
           el('button', { type: 'button', text: 'Voltar ao dia de hoje', onclick: () => { ed.catchup = false; edRenderToday(); } }))));
+      const bookAuto = !!ed.bookAuto; ed.bookAuto = false;
+      const bookBox = edBookPanel(missed, 'Atraso', bookAuto);
+      if (bookBox) card.append(bookBox);
       missed.forEach(m => card.append(blockBox(m.d, m.i, m.b, true)));
       card.append(el('h4', { class: 'catchup-sep', text: `Estudo de ${view === today ? 'hoje' : fmtDay(view)}` }));
     } else if (missed.length) card.append(edMissedCard(missed));
     blocks.forEach((b, i) => card.append(blockBox(view, i, b)));
     card.append(el('div', { id: 'edReview' }));
-    card.append(el('div', { class: 'q-actions' }, el('button', { type: 'button', class: 'primary', text: '🍅 Começar com Pomodoro', onclick: () => hooks.pomoStart?.() }), el('button', { type: 'button', text: '⏰ Lembrete', onclick: () => edReminderPanel() }), el('button', { type: 'button', text: '📟 Dia no Kindle', onclick: () => hooks.kindleDay(view, blocks) }), el('button', { type: 'button', text: '🔁 Revisão', onclick: () => { $('edReview').dataset.open = ''; edOpenReview(); } }), el('button', { type: 'button', text: '⚙ Edital, vaga e cronograma', onclick: () => { $('edSetup').open = true; $('edSetup').scrollIntoView({ behavior: 'smooth', block: 'start' }); } })));
+    card.append(el('div', { class: 'q-actions' }, el('button', { type: 'button', class: 'primary', text: '✨ Preparar o dia todo', title: 'Gera o que falta, junta todas as matérias num livro e carrega no leitor', onclick: () => { const r = $('edReview'); r.dataset.open = 'book'; r.replaceChildren(edBookPanel(blocks.map((b, i) => ({ d: view, i, b })), 'Estudo do dia', 'open') || el('p', { class: 'hint', text: 'Este dia não tem matérias de teoria ou questões para virar livro.' })); r.scrollIntoView({ behavior: 'smooth', block: 'nearest' }); } }), el('button', { type: 'button', class: 'primary', text: '🍅 Começar com Pomodoro', onclick: () => hooks.pomoStart?.() }), el('button', { type: 'button', text: '⏰ Lembrete', onclick: () => edReminderPanel() }), el('button', { type: 'button', text: '📚 Livro do dia', onclick: () => { const r = $('edReview'); if (r.dataset.open === 'book') { r.replaceChildren(); r.dataset.open = ''; return; } r.dataset.open = 'book'; r.replaceChildren(edBookPanel(blocks.map((b, i) => ({ d: view, i, b })), 'Estudo do dia') || el('p', { class: 'hint', text: 'Este dia não tem matérias de teoria ou questões para virar livro.' })); r.scrollIntoView({ behavior: 'smooth', block: 'nearest' }); } }), el('button', { type: 'button', text: '📟 Dia todo no Kindle', onclick: () => hooks.kindleDay(view, blocks) }), el('button', { type: 'button', text: '🔁 Revisão', onclick: () => { $('edReview').dataset.open = ''; edOpenReview(); } }), el('button', { type: 'button', text: '⚙ Edital, vaga e cronograma', onclick: () => { $('edSetup').open = true; $('edSetup').scrollIntoView({ behavior: 'smooth', block: 'start' }); } })));
     box.replaceChildren(card);
   }
   edRenderVagas(); edRenderDetail(); edRenderToday();
@@ -6287,8 +6477,22 @@ ${t.text}
   }
   // parts: [{title, text}] (texto com "## " vira capítulos). cards/erros entram no fim.
   async function makeEpub({ title, subtitle, parts, cards = [], erros = [] }) {
+    // Imagens do PDF: no texto elas são marcações ![imagem](img:ID); aqui viram figuras de verdade no livro.
+    const epImgs = new Map(); // id -> nome do arquivo no EPUB
+    const IMG_MARK = /!\[[^\]]*\]\(img:([^)\s]+)\)/g;
+    const epPara = p => {
+      let out = '', last = 0;
+      for (const m of String(p).matchAll(IMG_MARK)) {
+        const t = p.slice(last, m.index).trim(); if (t) out += `<p>${xmlEsc(t)}</p>`;
+        if (!epImgs.has(m[1])) epImgs.set(m[1], `img/f${epImgs.size + 1}`);
+        out += `<div class="fig" data-img="${xmlEsc(m[1])}"><img src="${epImgs.get(m[1])}" alt="Figura"/></div>`;
+        last = m.index + m[0].length;
+      }
+      const t = String(p).slice(last).trim(); if (t) out += `<p>${xmlEsc(t)}</p>`;
+      return out;
+    };
     const chapters = [];
-    parts.forEach(pt => textToChapters(pt.text, pt.title).forEach(c => chapters.push({ id: 'cap' + (chapters.length + 1), title: c.title === pt.title || !pt.group ? c.title : `${pt.group} – ${c.title}`, body: `<h2>${xmlEsc(c.title)}</h2>` + (pt.intro && c === textToChapters(pt.text, pt.title)[0] ? pt.intro : '') + c.paras.map(p => `<p>${xmlEsc(p)}</p>`).join('\n') })));
+    parts.forEach(pt => textToChapters(pt.text, pt.title).forEach(c => chapters.push({ id: 'cap' + (chapters.length + 1), title: c.title === pt.title || !pt.group ? c.title : `${pt.group} – ${c.title}`, body: `<h2>${xmlEsc(c.title)}</h2>` + (pt.intro && c === textToChapters(pt.text, pt.title)[0] ? pt.intro : '') + c.paras.map(epPara).join('\n') })));
     if (cards.length) chapters.push({ id: 'flashcards', title: `Flashcards (${cards.length})`, body: `<h2>Flashcards</h2><p class="hint">Leia a pergunta, responda de cabeça e só então leia a resposta.</p>` +
       cards.map((c, i) => `<div class="card"><p class="q"><b>${i + 1}.</b> ${xmlEsc(c.frente)}</p><p class="a">↳ ${xmlEsc(c.verso).replace(/\n/g, '<br/>')}</p></div>`).join('\n') });
     if (erros.length) {
@@ -6297,6 +6501,25 @@ ${t.text}
         erros.map((e, i) => `<div class="card"><p class="q"><b>${i + 1}.</b> ${xmlEsc(e.q.enunciado)}</p>` + (e.q.alternativas || []).map(a => `<p class="alt">${xmlEsc(a.letra)}) ${xmlEsc(a.texto)}</p>`).join('') + '</div>').join('\n') +
         '<h3>Gabarito comentado</h3>' + erros.map((e, i) => { const c = String(e.q.correta || '').trim().toUpperCase().charAt(0); return `<p><b>${i + 1}. ${c})</b> ${xmlEsc(L(e.q, c))}${e.q.localizar?.explicacao ? ' — ' + xmlEsc(e.q.localizar.explicacao) : ''}</p>`; }).join('\n') });
     }
+    const imgFiles = []; // { name, blob, type }
+    if (epImgs.size) {
+      let all = null;
+      for (const [id, base] of epImgs) {
+        let blob = null;
+        const mem = images.get(id);
+        if (mem?.url) { try { blob = await (await fetch(mem.url)).blob(); } catch (_) {} }
+        if (!blob) { all ||= await idbAll('images'); blob = all.find(r => r.id === id)?.blob || null; }
+        if (!blob) continue;
+        const png = /png/.test(blob.type), name = base + (png ? '.png' : '.jpg');
+        imgFiles.push({ id, name, blob, type: png ? 'image/png' : 'image/jpeg' });
+      }
+      const ok = new Map(imgFiles.map(f => [f.id, f.name]));
+      // troca o nome provisório pelo arquivo real; figura sem imagem guardada sai do livro
+      for (const c of chapters) c.body = c.body.replace(/<div class="fig" data-img="([^"]*)"><img src="[^"]*" alt="Figura"\/><\/div>/g, (_, id) => {
+        const real = ok.get(id.replace(/&amp;/g, '&').replace(/&quot;/g, '"').replace(/&lt;/g, '<').replace(/&gt;/g, '>'));
+        return real ? `<div class="fig"><img src="${real}" alt="Figura"/></div>` : '';
+      });
+    }
     const uid = 'leitor-' + Date.now().toString(36);
     const now = new Date().toISOString().replace(/\.\d+Z$/, 'Z');
     const cover = await epubCover(title, subtitle);
@@ -6304,12 +6527,12 @@ ${t.text}
 <package xmlns="http://www.idpf.org/2007/opf" version="3.0" unique-identifier="uid" xml:lang="pt-BR">
 <metadata xmlns:dc="http://purl.org/dc/elements/1.1/"><dc:identifier id="uid">${xmlEsc(uid)}</dc:identifier><dc:title>${xmlEsc(title)}</dc:title><dc:language>pt-BR</dc:language><dc:creator>Leitor de Estudo Ativo</dc:creator>${subtitle ? `<dc:description>${xmlEsc(subtitle)}</dc:description>` : ''}<meta property="dcterms:modified">${now}</meta><meta name="cover" content="capa-img"/></metadata>
 <manifest><item id="nav" href="nav.xhtml" media-type="application/xhtml+xml" properties="nav"/><item id="css" href="estilo.css" media-type="text/css"/><item id="ncx" href="toc.ncx" media-type="application/x-dtbncx+xml"/>
-<item id="capa-img" href="capa.jpg" media-type="image/jpeg" properties="cover-image"/><item id="capa" href="capa.xhtml" media-type="application/xhtml+xml"/>
+<item id="capa-img" href="capa.jpg" media-type="image/jpeg" properties="cover-image"/>${imgFiles.map((f, i) => `<item id="fig${i + 1}" href="${f.name}" media-type="${f.type}"/>`).join('')}<item id="capa" href="capa.xhtml" media-type="application/xhtml+xml"/>
 ${chapters.map(c => `<item id="${c.id}" href="${c.id}.xhtml" media-type="application/xhtml+xml"/>`).join('\n')}</manifest>
 <spine toc="ncx"><itemref idref="capa" linear="yes"/>${chapters.map(c => `<itemref idref="${c.id}"/>`).join('')}</spine></package>`;
     const nav = xhtml('Sumário', `<nav epub:type="toc" id="toc"><h1>Sumário</h1><ol>${chapters.map(c => `<li><a href="${c.id}.xhtml">${xmlEsc(c.title)}</a></li>`).join('')}</ol></nav>`);
     const ncx = `<?xml version="1.0" encoding="utf-8"?><ncx xmlns="http://www.daisy.org/z3986/2005/ncx/" version="2005-1"><head><meta name="dtb:uid" content="${xmlEsc(uid)}"/></head><docTitle><text>${xmlEsc(title)}</text></docTitle><navMap>${chapters.map((c, i) => `<navPoint id="n${i + 1}" playOrder="${i + 1}"><navLabel><text>${xmlEsc(c.title)}</text></navLabel><content src="${c.id}.xhtml"/></navPoint>`).join('')}</navMap></ncx>`;
-    const css = 'body{font-family:serif;line-height:1.5}h2{margin-top:0}p{margin:0 0 .7em;text-indent:0}.card{margin:0 0 1.2em;padding-bottom:.6em;border-bottom:1px solid #999}.q{font-weight:bold}.a,.alt{margin-left:1em}.hint{font-style:italic}.topicos{margin:0 0 1em}.capa{text-align:center;margin:0;padding:0}.capa img{max-width:100%;max-height:100%}';
+    const css = 'body{font-family:serif;line-height:1.5}.fig{text-align:center;margin:.8em 0;page-break-inside:avoid}.fig img{max-width:100%;height:auto}h2{margin-top:0}p{margin:0 0 .7em;text-indent:0}.card{margin:0 0 1.2em;padding-bottom:.6em;border-bottom:1px solid #999}.q{font-weight:bold}.a,.alt{margin-left:1em}.hint{font-style:italic}.topicos{margin:0 0 1em}.capa{text-align:center;margin:0;padding:0}.capa img{max-width:100%;max-height:100%}';
     const Zip = await loadZip();
     const zip = new Zip();
     zip.file('mimetype', 'application/epub+zip', { compression: 'STORE' });
@@ -6317,21 +6540,26 @@ ${chapters.map(c => `<item id="${c.id}" href="${c.id}.xhtml" media-type="applica
     zip.file('OEBPS/content.opf', opf); zip.file('OEBPS/nav.xhtml', nav); zip.file('OEBPS/toc.ncx', ncx); zip.file('OEBPS/estilo.css', css);
     zip.file('OEBPS/capa.jpg', cover); zip.file('OEBPS/capa.xhtml', xhtml(title, `<div class="capa"><img src="capa.jpg" alt="${xmlEsc(title)}"/></div>`));
     for (const c of chapters) zip.file(`OEBPS/${c.id}.xhtml`, xhtml(c.title, c.body));
+    for (const f of imgFiles) zip.file('OEBPS/' + f.name, f.blob);
     const blob = await zip.generateAsync({ type: 'blob', mimeType: 'application/epub+zip', compression: 'DEFLATE' });
     const fname = title.replace(/(\d{1,2})\/(\d{1,2})/g, '$1-$2').replace(/[\\/:*?"<>|]+/g, ' ').replace(/\s+/g, ' ').trim().slice(0, 90) + '.epub';
-    return { blob, fname, chapters: chapters.length, cards: cards.length, erros: erros.length };
+    return { blob, fname, chapters: chapters.length, cards: cards.length, erros: erros.length, imgs: imgFiles.length };
   }
   async function buildEpub() {
     const doc = libDoc(lib.activeId);
     const title = (doc?.name || state.fileName || 'Texto de estudo').replace(/\.(pdf|txt|md)$/i, '').replace(/(\d{1,2})\/(\d{1,2})/g, '$1-$2');
     const text = doc?.text || els.textInput.value || state.blocks.map(b => b.text).join(' ');
     if (!text.trim()) throw new Error('abra um arquivo primeiro');
-    let cards = []; try { cards = JSON.parse(loadSetting('cards-' + (lib.activeId || docKey()), '[]')) || []; } catch (_) {}
-    const erros = loadErros().filter(e => e.doc === (lib.activeId || docKey()) || e.docName === doc?.name);
+    // Livro do dia/atraso: junta os flashcards e os erros de cada matéria que entrou no livro.
+    let parts = []; try { parts = JSON.parse(loadSetting('bookparts-' + lib.activeId, '[]')) || []; } catch (_) {}
+    const ids = new Set([lib.activeId || docKey(), ...parts]);
+    const names = new Set([doc?.name, ...parts.map(id => libDoc(id)?.name)].filter(Boolean));
+    const cards = [...ids].flatMap(id => { try { return JSON.parse(loadSetting('cards-' + id, '[]')) || []; } catch (_) { return []; } });
+    const erros = loadErros().filter(e => ids.has(e.doc) || names.has(e.docName));
     return makeEpub({ title, subtitle: doc ? colOf(doc).split('›').pop().trim() : '', parts: [{ title, text }], cards, erros });
   }
   async function saveEpub(r) {
-    const extra = [r.cards ? `${r.cards} ${r.cards === 1 ? 'flashcard' : 'flashcards'}` : '', r.erros ? `${r.erros} ${r.erros === 1 ? 'questão' : 'questões'} do caderno de erros` : ''].filter(Boolean).join(' e ');
+    const extra = [r.cards ? `${r.cards} ${r.cards === 1 ? 'flashcard' : 'flashcards'}` : '', r.erros ? `${r.erros} ${r.erros === 1 ? 'questão' : 'questões'} do caderno de erros` : '', r.imgs ? `${r.imgs} ${r.imgs === 1 ? 'imagem' : 'imagens'}` : ''].filter(Boolean).join(' e ');
     const how = 'Agora mande para o Kindle: no app Kindle (Enviar para o Kindle) ou no site amazon.com/sendtokindle.';
     // Atalho: no celular, abre direto o menu Compartilhar; escolhendo “Kindle”, o livro já vai para a conta.
     try {
@@ -6388,3 +6616,5 @@ ${chapters.map(c => `<item id="${c.id}" href="${c.id}.xhtml" media-type="applica
 </script>
 </body>
 </html>
+
+</body></html>
