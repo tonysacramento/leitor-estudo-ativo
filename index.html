@@ -17,7 +17,7 @@
   <meta name="mobile-web-app-capable" content="yes">
   <meta name="apple-mobile-web-app-title" content="Leitor Ativo">
   <meta name="apple-mobile-web-app-status-bar-style" content="default">
-  <title>Leitor de Estudo Ativo • Versão 9.13</title>
+  <title>Leitor de Estudo Ativo • Versão 9.14</title>
   <!-- PDF.js (módulo moderno) é carregado somente ao abrir PDFs. Biblioteca e worker usam a mesma versão. -->
   <style>
     :root {
@@ -561,7 +561,7 @@
 <main>
   <header class="header">
     <div>
-      <div class="eyebrow">Estudo com áudio • v9.13</div>
+      <div class="eyebrow">Estudo com áudio • v9.14</div>
       <h1>Leitor de Estudo Ativo</h1>
       <p class="subtitle">Ouça, acompanhe a frase em destaque e retome de onde quiser.</p>
     </div>
@@ -4818,10 +4818,10 @@ ${slice}
     const draw = () => {
       const q = plain(filter.value);
       list.replaceChildren(...v.filter(x => !q || plain([x.cargo, x.especialidade, x.codigo].join(' ')).includes(q)).map(x => {
-        const b = el('button', { type: 'button', class: 'vaga-btn' + (ed.data.sel === x.id ? ' sel' : '') },
+        const b = el('button', { type: 'button', class: 'vaga-btn' + ((ed.data.selMulti || [ed.data.sel]).includes(x.id) ? ' sel' : '') },
           el('span', { text: [x.cargo, x.especialidade].filter(Boolean).join(' – ') }),
           el('small', { text: [x.codigo && `Cód. ${x.codigo}`, x.vagas && `Vagas: ${x.vagas}`, x.remuneracao, x.escolaridade].filter(Boolean).join(' • ') }));
-        b.addEventListener('click', () => edSelect(x.id));
+        b.addEventListener('click', () => edSelect(x.id, { add: ed.mergeMode }));
         return el('li', {}, b);
       }));
     };
@@ -4830,10 +4830,12 @@ ${slice}
     head.append(list); draw();
     box.replaceChildren(head);
   }
-  async function edSelect(id) {
+  async function edSelect(id, opt = {}) {
     const v = (ed.data.vagas || []).find(x => x.id === id); if (!v) return;
     if (!edText()) { edStatus('O texto do edital não está mais salvo. Anexe o edital de novo.', true); return; }
-    ed.data.sel = id; edSave(); edRenderVagas();
+    const add = !!(opt.add && ed.data.detail && !(ed.data.selMulti || [ed.data.sel]).includes(id));
+    if (!add) { ed.data.sel = id; ed.data.selMulti = [id]; }
+    ed.mergeMode = false; edSave(); edRenderVagas();
     const keys = [v.cargo, v.especialidade, v.codigo].filter(Boolean).flatMap(s => [wide(s)]);
     const slice = edSlice(edText(), [...keys, 'conteúdo programático', wide('conhecimentos gerais'), wide('conhecimentos básicos'), wide('conhecimentos específicos'), 'atribuições', 'requisitos', 'prova objetiva', 'prova discursiva', 'peso', 'número de questões', 'etapa'], 140000, 8000);
     const data = await edAsk(`${EDITAL_RULES}
@@ -4851,6 +4853,31 @@ ${slice}
 """`, `Lendo os detalhes de “${[v.cargo, v.especialidade].filter(Boolean).join(' – ')}”`);
     if (!data) return;
     data.materias = (data.materias || []).filter(m => m?.nome).map(m => ({ ...m, grupo: /espec/i.test(m.grupo || '') ? 'especificos' : 'gerais', topicos: (m.topicos || []).filter(Boolean) }));
+    if (add) {
+      // ➕ Junta a segunda vaga: matérias com o mesmo nome viram uma só (tópicos somados, sem repetir).
+      const base = ed.data.detail, nameA = [base.cargo, base.especialidade].filter(Boolean).join(' – '), nameB = [data.cargo || v.cargo, data.especialidade || v.especialidade].filter(Boolean).join(' – ');
+      const byName = new Map();
+      const put = (m, who) => {
+        const k = plain(m.nome);
+        if (!byName.has(k)) { byName.set(k, { ...m, topicos: [...m.topicos], vagasDe: [who] }); return; }
+        const x = byName.get(k), seen = new Set(x.topicos.map(plain));
+        for (const t of m.topicos) if (!seen.has(plain(t))) { x.topicos.push(t); seen.add(plain(t)); }
+        x.questoes = Math.max(Number(x.questoes) || 0, Number(m.questoes) || 0) || null;
+        x.peso = Math.max(Number(x.peso) || 0, Number(m.peso) || 0) || null;
+        if (m.grupo === 'especificos') x.grupo = 'especificos';
+        if (!x.vagasDe.includes(who)) x.vagasDe.push(who);
+      };
+      base.materias.forEach(m => put(m, m.vagasDe?.[0] || nameA)); data.materias.forEach(m => put(m, nameB));
+      ed.data.selMulti = [...(ed.data.selMulti || [ed.data.sel]), id];
+      ed.data.detail = { ...base, cargo: `${nameA} + ${nameB}`, especialidade: '', vagas: '', remuneracao: '', codigo: '', merged: true,
+        etapas: [...(base.etapas || []), ...(data.etapas || []).map(e => ({ ...e, nome: `${e.nome || ''} (${nameB})` }))],
+        data_prova: base.data_prova || data.data_prova, materias: [...byName.values()] };
+      edSave(); edRenderVagas(); edRenderDetail();
+      const comuns = ed.data.detail.materias.filter(m => m.vagasDe.length > 1).length;
+      const n = ed.data.detail.materias.reduce((a, m) => a + m.topicos.length, 0);
+      edStatus(`➕ Vagas juntadas: ${ed.data.detail.materias.length} matérias (${comuns} em comum) e ${n} tópicos, sem repetir. Confira e gere o cronograma.`);
+      return;
+    }
     ed.data.detail = { ...data, vagaId: id };
     edSave(); edRenderDetail();
     const n = data.materias.reduce((a, m) => a + m.topicos.length, 0);
@@ -4860,8 +4887,15 @@ ${slice}
   function edRenderDetail() {
     const d = ed.data.detail, box = $('edDetail');
     if (!d) { box.replaceChildren(); $('edPlanForm').hidden = true; return; }
-    const card = el('div', { class: 'card', style: 'margin-top:12px' }, el('span', { class: 'tag', text: 'Vaga escolhida' }),
+    const card = el('div', { class: 'card', style: 'margin-top:12px' }, el('span', { class: 'tag', text: d.merged ? 'Vagas juntadas' : 'Vaga escolhida' }),
       el('h3', { text: [d.cargo, d.especialidade].filter(Boolean).join(' – ') }));
+    if ((ed.data.vagas || []).length > 1) card.append(el('div', { class: 'q-actions' },
+      el('button', { type: 'button', text: ed.mergeMode ? '✕ Cancelar: não juntar' : '➕ Juntar outra vaga (estudar para as duas)', onclick: () => {
+        ed.mergeMode = !ed.mergeMode; edRenderDetail();
+        if (ed.mergeMode) { edStatus('Toque na outra vaga, na lista acima, para juntar as matérias das duas no mesmo cronograma.'); $('edVagas')?.scrollIntoView({ behavior: 'smooth', block: 'start' }); }
+        else edStatus('');
+      } }),
+      d.merged ? el('button', { type: 'button', text: '↺ Voltar a uma vaga só', onclick: () => edSelect(ed.data.selMulti[0]) }) : null));
     const info = [['Vagas', d.vagas], ['Remuneração', d.remuneracao], ['Jornada', d.jornada], ['Escolaridade', d.escolaridade], ['Requisitos', d.requisitos], ['Lotação', d.lotacao], ['Data da prova', d.data_prova && new Date(d.data_prova + 'T12:00').toLocaleDateString('pt-BR')]].filter(x => x[1]);
     const ul = el('ul'); info.forEach(([k, val]) => ul.append(el('li', {}, el('strong', { text: k + ': ' }), String(val)))); card.append(ul);
     if (d.atribuicoes) card.append(el('h4', { text: 'Atribuições' }), el('p', { text: d.atribuicoes }));
@@ -4874,7 +4908,7 @@ ${slice}
       if (!mats.length) continue;
       card.append(el('h4', { text: `${label} (${mats.length})` }));
       for (const m of mats) {
-        const extra = [m.questoes && `${m.questoes} questões`, m.peso && `peso ${m.peso}`, `${m.topicos.length} tópicos`].filter(Boolean).join(' • ');
+        const extra = [m.questoes && `${m.questoes} questões`, m.peso && `peso ${m.peso}`, `${m.topicos.length} tópicos`, d.merged && m.vagasDe && (m.vagasDe.length > 1 ? '🔗 cai nas duas provas' : `só: ${m.vagasDe[0]}`)].filter(Boolean).join(' • ');
         const det = el('details', { class: 'mat' }, el('summary', {}, m.nome, el('span', { class: 'grp-tag', text: extra })));
         const tl = el('ul'); m.topicos.forEach(t => tl.append(el('li', { text: t }))); det.append(tl);
         card.append(det);
