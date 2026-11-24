@@ -17,7 +17,7 @@
   <meta name="mobile-web-app-capable" content="yes">
   <meta name="apple-mobile-web-app-title" content="Leitor Ativo">
   <meta name="apple-mobile-web-app-status-bar-style" content="default">
-  <title>Leitor de Estudo Ativo • Versão 9.12</title>
+  <title>Leitor de Estudo Ativo • Versão 9.13</title>
   <!-- PDF.js (módulo moderno) é carregado somente ao abrir PDFs. Biblioteca e worker usam a mesma versão. -->
   <style>
     :root {
@@ -561,7 +561,7 @@
 <main>
   <header class="header">
     <div>
-      <div class="eyebrow">Estudo com áudio • v9.12</div>
+      <div class="eyebrow">Estudo com áudio • v9.13</div>
       <h1>Leitor de Estudo Ativo</h1>
       <p class="subtitle">Ouça, acompanhe a frase em destaque e retome de onde quiser.</p>
     </div>
@@ -614,6 +614,15 @@
           <div class="field"><label for="edExam">Data da prova</label><input type="date" id="edExam"></div>
           <div class="field"><label for="edTime">Horário de estudo</label><input type="time" id="edTime" value="19:00"></div>
           <div class="field"><label for="edHours">Horas por dia</label><select id="edHours"><option>1</option><option selected>2</option><option>3</option><option>4</option><option>5</option><option>6</option></select></div>
+        </div>
+        <div class="field" style="margin-top:10px"><label for="edFocus">Divisão do tempo</label>
+          <select id="edFocus">
+            <option value="auto" selected>Pela pontuação do edital (recomendado)</option>
+            <option value="0.75">75% específicas • 25% gerais</option>
+            <option value="0.65">65% específicas • 35% gerais</option>
+            <option value="0.5">Igual entre gerais e específicas</option>
+          </select>
+          <p class="hint" style="margin:4px 0 0">Estude onde estão os pontos: se as específicas valem 3/4 da nota, elas recebem 3/4 do tempo (a teoria de todas as matérias continua garantida).</p>
         </div>
         <div class="field" style="margin-top:10px"><span class="label">Dias de estudo</span>
           <div class="ed-days" id="edDays">
@@ -5023,6 +5032,16 @@ ${section}
       return { w: m.w, u };
     });
     const theory = units.reduce((a, x) => a + x.u.length, 0);
+    // ---- Divisão do tempo pela pontuação (gerais × específicas) ----
+    const pts = g => mats.filter(m => m.grupo === g).reduce((a, m) => a + (Number(d.materias.find(x => x.nome === m.nome)?.questoes) || 0) * (Number(d.materias.find(x => x.nome === m.nome)?.peso) || 1), 0);
+    const hasBoth = mats.some(m => m.grupo === 'especificos') && mats.some(m => m.grupo !== 'especificos');
+    const focusSel = $('edFocus')?.value || 'auto';
+    let share = null, shareWhy = '';
+    if (hasBoth) {
+      if (focusSel === 'auto') { const pe = pts('especificos'), pg = pts('gerais'); if (pe + pg > 0) { share = pe / (pe + pg); shareWhy = 'pela pontuação do edital'; } }
+      else { share = Number(focusSel); shareWhy = 'pela sua escolha'; }
+    }
+    if (share != null) share = Math.min(0.9, Math.max(0.1, share));
     // Rodadas extras enquanto couberem inteiras: questões, revisão, e de novo (revisão espaçada).
     const passes = ['teoria'];
     for (const pass of ['questões', 'revisão', 'questões', 'revisão']) { if ((passes.length + 1) * theory > totalSlots) break; passes.push(pass); }
@@ -5037,6 +5056,32 @@ ${section}
         best.cur -= total; queue.push(best.u.shift());
       }
     });
+    if (share != null) {
+      // Refaz as rodadas extras para o tempo total seguir a divisão escolhida.
+      const isEsp = b => b.grupo === 'especificos';
+      const theoryQ = queue.filter(b => b.tipo === 'teoria');
+      queue.length = 0; queue.push(...theoryQ);
+      const thE = theoryQ.filter(isEsp).length, thG = theoryQ.length - thE;
+      const tgtE = Math.round(totalSlots * share), tgtG = totalSlots - tgtE;
+      const extra = (grp, n) => {
+        const us = units.filter(x => x.u.length && (grp === 'esp') === isEsp(x.u[0]));
+        const pool = us.map(x => ({ w: x.w, cur: 0, u: x.u, i: 0, r: 0 }));
+        const total = pool.reduce((a, x) => a + x.w, 0), out = [];
+        while (out.length < n && pool.length) {
+          let best = null; for (const x of pool) { x.cur += x.w; if (!best || x.cur > best.cur) best = x; }
+          best.cur -= total;
+          const b = best.u[best.i % best.u.length], round = Math.floor(best.i / best.u.length);
+          out.push({ ...b, tipo: round % 2 === 0 ? 'questões' : 'revisão', rodada: round + 2 }); best.i++;
+        }
+        return out;
+      };
+      const exE = extra('esp', Math.max(0, tgtE - thE)), exG = extra('ger', Math.max(0, tgtG - thG));
+      // Intercala as duas listas na proporção certa (sem concentrar um grupo num trecho).
+      let iE = 0, iG = 0;
+      while (iE < exE.length || iG < exG.length) {
+        if (iG >= exG.length || (iE < exE.length && (iE + 1) / (exE.length + 1) <= (iG + 1) / (exG.length + 1))) queue.push(exE[iE++]); else queue.push(exG[iG++]);
+      }
+    }
     const spare = totalSlots - queue.length;
     if (spare > 0) {
       // Intercala as matérias de maior peso (uma de cada vez), para não concentrar uma só matéria no dia.
@@ -5069,7 +5114,9 @@ ${section}
     const left = queue.length - q;
     ed.data.plan = plan; ed.data.view = isoDay(new Date()); edSave();
     $('edSetup').open = false; edRenderToday();
-    edStatus(`Cronograma criado: ${dates.length} dias de estudo até ${exam.toLocaleDateString('pt-BR')}, ${slots} bloco(s) de ~1h por dia.${per > 1 ? ` ${per} tópicos por bloco (muitos tópicos para o tempo disponível).` : ''}${left ? ` ⚠ ${left} blocos não couberam: aumente as horas ou os dias.` : ''}`);
+    const espN = Object.values(plan.days).flat().filter(b => b.grupo === 'especificos').length, allN = Object.values(plan.days).flat().filter(b => b.grupo).length;
+    const shareTxt = share != null && allN ? ` Tempo: ${Math.round(espN / allN * 100)}% específicas e ${100 - Math.round(espN / allN * 100)}% gerais (${shareWhy}).` : '';
+    edStatus(`Cronograma criado: ${dates.length} dias de estudo até ${exam.toLocaleDateString('pt-BR')}, ${slots} bloco(s) de ~1h por dia.${shareTxt}${per > 1 ? ` ${per} tópicos por bloco (muitos tópicos para o tempo disponível).` : ''}${left ? ` ⚠ ${left} blocos não couberam: aumente as horas ou os dias.` : ''}`);
   }
   $('edMakePlan').addEventListener('click', edMakePlan);
 
