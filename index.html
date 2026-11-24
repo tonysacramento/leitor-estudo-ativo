@@ -17,7 +17,7 @@
   <meta name="mobile-web-app-capable" content="yes">
   <meta name="apple-mobile-web-app-title" content="Leitor Ativo">
   <meta name="apple-mobile-web-app-status-bar-style" content="default">
-  <title>Leitor de Estudo Ativo • Versão 9.10</title>
+  <title>Leitor de Estudo Ativo • Versão 9.11</title>
   <!-- PDF.js (módulo moderno) é carregado somente ao abrir PDFs. Biblioteca e worker usam a mesma versão. -->
   <style>
     :root {
@@ -561,7 +561,7 @@
 <main>
   <header class="header">
     <div>
-      <div class="eyebrow">Estudo com áudio • v9.10</div>
+      <div class="eyebrow">Estudo com áudio • v9.11</div>
       <h1>Leitor de Estudo Ativo</h1>
       <p class="subtitle">Ouça, acompanhe a frase em destaque e retome de onde quiser.</p>
     </div>
@@ -4788,7 +4788,19 @@ ${slice}
     ed.data.concurso = data.concurso || {};
     ed.data.vagas = (data.vagas || []).filter(v => v && (v.cargo || v.especialidade)).map((v, i) => ({ ...v, id: v.id || 'v' + (i + 1) }));
     edSave(); edRenderVagas();
-    edStatus(ed.data.vagas.length ? `${ed.data.vagas.length} vagas encontradas. Escolha a sua para ver os detalhes.` : 'Não encontrei vagas neste arquivo. Confira se é o edital completo.', !ed.data.vagas.length);
+    if (ed.data.vagas.length) { edStatus(`${ed.data.vagas.length} vagas encontradas. Escolha a sua para ver os detalhes.`); return; }
+    // Sem quadro de vagas (ex.: colou só o conteúdo programático): segue com uma vaga informada pela pessoa.
+    edStatus('Não achei o quadro de vagas neste texto. Se você colou só o conteúdo programático da sua vaga, informe o cargo abaixo e siga.', true);
+    const cargo = el('input', { type: 'text', class: 'ed-filter', placeholder: 'Cargo / especialidade (ex.: Analista Judiciário – TI)', value: [ed.data.concurso?.orgao].filter(Boolean).join(' ') });
+    const go = el('button', { type: 'button', class: 'primary', text: '➜ Usar este texto como o conteúdo da minha vaga', onclick: () => {
+      const nome = cargo.value.trim() || 'Minha vaga';
+      ed.data.vagas = [{ id: 'v1', cargo: nome, especialidade: '', codigo: '', vagas: '', remuneracao: '', escolaridade: '' }];
+      edSave(); edRenderVagas(); edSelect('v1');
+    } });
+    $('edVagas').replaceChildren(el('div', { class: 'ed-step' },
+      el('strong', { text: '2. Sua vaga' }),
+      el('p', { class: 'hint', text: 'Para listar todas as vagas, o texto precisa ter o quadro de vagas do edital. Sem ele, dá para seguir direto: o conteúdo colado vira as matérias e os tópicos do seu cronograma.' }),
+      cargo, el('div', { class: 'q-actions' }, go)));
   }
   function edRenderVagas() {
     const box = $('edVagas'), v = ed.data.vagas || [];
