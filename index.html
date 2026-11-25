@@ -17,7 +17,7 @@
   <meta name="mobile-web-app-capable" content="yes">
   <meta name="apple-mobile-web-app-title" content="Leitor Ativo">
   <meta name="apple-mobile-web-app-status-bar-style" content="default">
-  <title>Leitor de Estudo Ativo • Versão 9.15</title>
+  <title>Leitor de Estudo Ativo • Versão 9.16</title>
   <!-- PDF.js (módulo moderno) é carregado somente ao abrir PDFs. Biblioteca e worker usam a mesma versão. -->
   <style>
     :root {
@@ -563,7 +563,7 @@
 <main>
   <header class="header">
     <div>
-      <div class="eyebrow">Estudo com áudio • v9.15</div>
+      <div class="eyebrow">Estudo com áudio • v9.16</div>
       <h1>Leitor de Estudo Ativo</h1>
       <p class="subtitle">Ouça, acompanhe a frase em destaque e retome de onde quiser.</p>
     </div>
@@ -5201,6 +5201,83 @@ ${section}
     }
     return out.sort((a, b) => b.score - a.score).slice(0, 3).map(x => x.doc);
   }
+  // ---------- 🖼 Desenho dos esquemas (canvas → PNG) ----------
+  async function drawFigure(spec) {
+    const tipo = String(spec?.tipo || '').toLowerCase();
+    const T = v => String(v ?? '').replace(/\s+/g, ' ').trim().slice(0, 90);
+    const W = 900, PAD = 28, C = { bg: '#fffdf8', ink: '#2b2620', mute: '#6f6556', pri: '#6b5a3e', box: '#f3ecdf', line: '#c9b99a', alt: '#e7f0ea' };
+    const cv = document.createElement('canvas'), g = cv.getContext('2d');
+    const F = (sz, b) => `${b ? 'bold ' : ''}${sz}px system-ui, -apple-system, "Segoe UI", Roboto, sans-serif`;
+    const wrap = (txt, maxW, font) => { g.font = font; const out = []; let cur = '';
+      for (const w of T(txt).split(' ')) { const t = cur ? cur + ' ' + w : w; if (g.measureText(t).width > maxW && cur) { out.push(cur); cur = w; } else cur = t; }
+      if (cur) out.push(cur); return out.length ? out : ['']; };
+    const ops = []; // desenha em 2 passadas: mede a altura, depois pinta
+    const rect = (x, y, w, h, fill, stroke) => ops.push(() => { g.beginPath(); g.roundRect ? g.roundRect(x, y, w, h, 12) : g.rect(x, y, w, h); g.fillStyle = fill; g.fill(); if (stroke) { g.strokeStyle = stroke; g.lineWidth = 2; g.stroke(); } });
+    const text = (lines, x, y, font, color, align = 'left', lh = 26) => ops.push(() => { g.font = font; g.fillStyle = color; g.textAlign = align; g.textBaseline = 'top'; lines.forEach((l, i) => g.fillText(l, x, y + i * lh)); });
+    const arrow = (x1, y1, x2, y2) => ops.push(() => { g.strokeStyle = C.pri; g.fillStyle = C.pri; g.lineWidth = 3; g.beginPath(); g.moveTo(x1, y1); g.lineTo(x2, y2); g.stroke();
+      const a = Math.atan2(y2 - y1, x2 - x1); g.beginPath(); g.moveTo(x2, y2); g.lineTo(x2 - 12 * Math.cos(a - .45), y2 - 12 * Math.sin(a - .45)); g.lineTo(x2 - 12 * Math.cos(a + .45), y2 - 12 * Math.sin(a + .45)); g.closePath(); g.fill(); });
+    let y = PAD;
+    const titulo = wrap(spec.titulo || 'Esquema', W - 2 * PAD, F(28, true));
+    text(titulo, W / 2, y, F(28, true), C.pri, 'center', 34); y += titulo.length * 34 + 18;
+    if (tipo === 'fluxo') {
+      const itens = (spec.itens || spec.etapas || []).map(T).filter(Boolean).slice(0, 8); if (itens.length < 2) return null;
+      const bw = W - 2 * PAD - 60;
+      itens.forEach((it, i) => {
+        const ls = wrap(it, bw - 90, F(22)), h = Math.max(56, ls.length * 28 + 24);
+        rect(PAD + 30, y, bw, h, C.box, C.line);
+        const cy = y + h / 2; ops.push(() => { g.beginPath(); g.arc(PAD + 66, cy, 20, 0, 7); g.fillStyle = C.pri; g.fill(); });
+        text([String(i + 1)], PAD + 66, y + h / 2 - 12, F(22, true), '#fff', 'center');
+        text(ls, PAD + 104, y + (h - ls.length * 28) / 2 + 2, F(22), C.ink, 'left', 28);
+        y += h;
+        if (i < itens.length - 1) { arrow(W / 2, y + 4, W / 2, y + 30); y += 36; }
+      });
+    } else if (tipo === 'hierarquia') {
+      const filhos = (spec.filhos || []).filter(f => f && (f.nome || f.itens)).slice(0, 4); if (!filhos.length) return null;
+      const rl = wrap(spec.raiz || spec.titulo, 520, F(24, true)), rh = rl.length * 30 + 26;
+      rect(W / 2 - 290, y, 580, rh, C.pri); text(rl, W / 2, y + 13, F(24, true), '#fff', 'center', 30);
+      const top = y + rh; y = top + 56;
+      const n = filhos.length, gap = 16, cw = (W - 2 * PAD - gap * (n - 1)) / n;
+      const fs = n >= 4 ? 17 : 19, lh = fs + 7;
+      const cols = filhos.map(f => ({ nome: wrap(f.nome, cw - 24, F(fs + 1, true)), itens: (f.itens || []).slice(0, 5).map(it => wrap('• ' + T(it), cw - 24, F(fs))) }));
+      const ch = Math.max(...cols.map(c => c.nome.length * lh + 22 + c.itens.reduce((a, l) => a + l.length * lh + 6, 0))) + 14;
+      cols.forEach((c, i) => {
+        const x = PAD + i * (cw + gap);
+        arrow(W / 2, top, x + cw / 2, y - 4);
+        rect(x, y, cw, ch, C.box, C.line);
+        text(c.nome, x + cw / 2, y + 12, F(fs + 1, true), C.pri, 'center', lh);
+        let yy = y + 12 + c.nome.length * lh + 10;
+        c.itens.forEach(l => { text(l, x + 12, yy, F(fs), C.ink, 'left', lh); yy += l.length * lh + 6; });
+      });
+      y += ch;
+    } else if (tipo === 'comparacao') {
+      const colunas = (spec.colunas || []).map(T).filter(Boolean).slice(0, 3); const linhas = (spec.linhas || []).slice(0, 7);
+      if (colunas.length < 2 || !linhas.length) return null;
+      const aw = 210, vw = (W - 2 * PAD - aw) / colunas.length;
+      const head = colunas.map(c => wrap(c, vw - 20, F(21, true))); const hh = Math.max(...head.map(l => l.length)) * 27 + 20;
+      rect(PAD, y, W - 2 * PAD, hh, C.pri);
+      head.forEach((l, i) => text(l, PAD + aw + i * vw + vw / 2, y + 10, F(21, true), '#fff', 'center', 27));
+      y += hh;
+      linhas.forEach((r, k) => {
+        const a = wrap(r.aspecto || r.criterio || '', aw - 20, F(19, true)), vs = colunas.map((_, i) => wrap((r.valores || [])[i] || '—', vw - 20, F(19)));
+        const h = Math.max(a.length, ...vs.map(v => v.length)) * 25 + 20;
+        rect(PAD, y, W - 2 * PAD, h, k % 2 ? C.bg : C.box);
+        text(a, PAD + 10, y + 10, F(19, true), C.pri, 'left', 25);
+        vs.forEach((v, i) => text(v, PAD + aw + i * vw + 10, y + 10, F(19), C.ink, 'left', 25));
+        ops.push((yy => () => { g.strokeStyle = C.line; g.lineWidth = 1; g.beginPath(); g.moveTo(PAD, yy); g.lineTo(W - PAD, yy); g.stroke(); })(y + h));
+        y += h;
+      });
+    } else return null;
+    y += PAD;
+    const scale = 1;
+    cv.width = W * scale; cv.height = Math.ceil(y) * scale;
+    g.fillStyle = C.bg; g.fillRect(0, 0, cv.width, cv.height);
+    g.strokeStyle = C.line; g.lineWidth = 2; g.strokeRect(1, 1, cv.width - 2, cv.height - 2);
+    ops.forEach(f => f());
+    const blob = await new Promise(r => cv.toBlob(r, 'image/png'));
+    if (!blob) return null;
+    return { id: 'fig' + Date.now().toString(36) + Math.random().toString(36).slice(2, 6), blob, w: cv.width, h: cv.height };
+  }
+
   async function edMaterial(block, opt = {}) {
     const vaga = ed.data.plan?.vaga || '';
     const ref = edRefDocs(block);
@@ -5211,15 +5288,29 @@ Tópicos do edital: ${block.topicos.join('; ')}
 - 1.200 a 1.800 palavras, em português do Brasil, nível de prova de concurso.
 - Estrutura: títulos curtos; explicação clara; base legal/normativa quando houver (cite o dispositivo); exemplos; "Pegadinhas de prova"; e ao fim "Pontos-chave" (5 a 8 frases curtas).
 - Texto corrido, bom para ouvir em voz alta (sem tabelas).
+- ILUSTRAÇÕES: em 2 ou 3 seções (as que mais ganham com um esquema visual), inclua o campo "figura" com UM dos formatos abaixo. Textos curtos (até ~8 palavras por item), fiéis ao texto da seção:
+  • passo a passo/processo: {"tipo":"fluxo","titulo":"...","itens":["etapa 1","etapa 2",...]} (3 a 7 itens)
+  • classificação/divisão: {"tipo":"hierarquia","titulo":"...","raiz":"...","filhos":[{"nome":"...","itens":["...","..."]}]} (2 a 4 filhos, até 4 itens cada)
+  • comparação: {"tipo":"comparacao","titulo":"...","colunas":["A","B"],"linhas":[{"aspecto":"...","valores":["...","..."]}]} (2 ou 3 colunas, 3 a 6 linhas)
 ${refText ? '- Baseie-se prioritariamente no MATERIAL DE REFERÊNCIA do aluno abaixo; complete com conhecimento consolidado, sem inventar normas. Se ele não tratar destes tópicos, ignore-o sem comentar: nunca escreva sobre o material de referência no texto.' : '- Use apenas conhecimento consolidado; não invente normas, números ou artigos.'}
-Responda APENAS com JSON válido: {"titulo":"string","secoes":[{"titulo":"string","texto":"string"}]}
+Responda APENAS com JSON válido: {"titulo":"string","secoes":[{"titulo":"string","texto":"string","figura":{…} (opcional)}]}
 ${refText ? `\nMATERIAL DE REFERÊNCIA:\n"""\n${refText}\n"""` : ''}`, `Preparando o material de “${block.materia}”`, { expect: 13000 });
     if (!data) return;
     const secs = (data.secoes || []).filter(x => x?.texto);
     if (!secs.length) { edStatus('O material veio vazio. Tente de novo.', true); return; }
-    const text = secs.map(x => `## ${x.titulo || ''}\n\n${x.texto}`).join('\n\n');
+    // 🖼 Esquemas ilustrativos: a IA descreve (fluxo, hierarquia, comparação) e o app desenha a imagem aqui mesmo.
+    const figs = [];
+    const parts = [];
+    for (const x of secs) {
+      let part = `## ${x.titulo || ''}\n\n${x.texto}`;
+      if (x.figura && figs.length < 4) {
+        try { const im = await drawFigure(x.figura); if (im) { figs.push(im); part += `\n\n![${(x.figura.titulo || 'Esquema').replace(/[\[\]]/g, '')}](img:${im.id})`; } } catch (e) { console.warn('figura', e); }
+      }
+      parts.push(part);
+    }
+    const text = parts.join('\n\n');
     const col = `${(ed.data.concurso?.orgao || 'Concurso').slice(0, 40)} › Material diário`;
-    const doc = libAdd(`${(opt.day || ed.data.view).split('-').reverse().slice(0, 2).join('/')} • ${block.materia}: ${data.titulo || block.topicos[0]}`.slice(0, 120), { text, pdfPages: null, ignored: [] }, col);
+    const doc = libAdd(`${(opt.day || ed.data.view).split('-').reverse().slice(0, 2).join('/')} • ${block.materia}: ${data.titulo || block.topicos[0]}`.slice(0, 120), { text, pdfPages: null, ignored: [], images: figs }, col);
     block.docId = doc.id; edSave();
     if (opt.silent) return doc; // Livro do dia/atraso: gera em sequência sem trocar de tela.
     await libSwitch(doc.id, { quiet: true });
