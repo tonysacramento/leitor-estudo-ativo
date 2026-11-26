@@ -308,6 +308,13 @@
     .ed-paste textarea { width: 100%; min-height: 160px; padding: 10px; border: 1px solid var(--border); border-radius: 10px; background: var(--surface); color: var(--text); font: inherit; font-size: .9rem; resize: vertical; }
     .login-hint { display: grid; gap: 6px; margin: 0 0 14px; padding: 14px 16px; border: 2px solid var(--primary); border-radius: 14px; background: var(--active); }
     .login-hint p { margin: 4px 0 0; font-size: .9rem; }
+    .dup-btn { font-size: 1.08em; padding: .8em 1.1em; }
+    .dup-guide { position: fixed; inset: 0; z-index: 9999; background: rgba(0,0,0,.55); display: flex; flex-direction: column; align-items: flex-start; padding: 8px 14px; overflow: auto; }
+    .dup-arrow { font-size: 64px; line-height: 1; color: #ffd54a; margin-left: 28px; text-shadow: 0 2px 6px rgba(0,0,0,.6); animation: dupBounce 1s ease-in-out infinite; }
+    @keyframes dupBounce { 50% { transform: translateY(-10px); } }
+    @media (prefers-reduced-motion: reduce) { .dup-arrow { animation: none; } }
+    .dup-card { background: var(--surface); color: var(--text); border: 1px solid var(--border); border-radius: 14px; padding: 16px; max-width: 520px; width: 100%; box-shadow: 0 8px 30px rgba(0,0,0,.35); }
+    .dup-card p { margin: .4em 0; }
     .login-steps { margin: 6px 0 4px 1.2em; padding: 0; }
     .login-steps li { margin: 2px 0; }
     .merge-pick { display: grid; gap: 6px; margin: 8px 0; padding: 10px; border: 2px dashed var(--primary); border-radius: 12px; }
@@ -2621,28 +2628,42 @@ ${blocos}
     if (ile.needLogin) ileStatus('🔐 Entre com a sua conta do Claude (botão “Entrar” no topo) e recarregue a página para usar a IA.');
     else if (!gem.key) ileStatus('Configure a chave do Gemini abaixo para gerar aqui, ou use os botões para criar um prompt para o Claude.');
   }
-  const LOGIN_MSG = 'Para usar a IA do Claude, toque em “Entrar” no topo da página e entre com a sua conta do Claude (pode ser a conta gratuita). Depois, recarregue a página. Se já estiver conectado, esta é uma página compartilhada: faça a sua cópia tocando no nome do app no topo (▾) → “Duplicar”.';
+  const LOGIN_MSG = 'Para usar a IA do Claude, toque em “Entrar” no topo da página e entre com a sua conta do Claude (pode ser a conta gratuita). Depois, recarregue a página. Se já estiver conectado, esta é uma página compartilhada: use o botão “📄 Fazer minha cópia (Duplicar)” no aviso do topo.';
+  // Guia do "Duplicar": o botão é do Claude (fora do app), então mostramos onde tocar com uma seta para o topo.
+  function showDupGuide() {
+    if ($('dupGuide')) return;
+    const close = () => ov.remove();
+    const ov = el('div', { id: 'dupGuide', class: 'dup-guide', role: 'dialog', 'aria-label': 'Como fazer a sua cópia do app' },
+      el('div', { class: 'dup-arrow', 'aria-hidden': 'true', text: '⬆' }),
+      el('div', { class: 'dup-card' },
+        el('strong', { text: '📄 Toque no nome do app, lá em cima' }),
+        el('p', { text: 'É o “Leitor de Estudo Ativo ▾”, logo acima desta página (na barra do Claude).' }),
+        el('ol', { class: 'login-steps' },
+          el('li', { text: 'Toque em “Leitor de Estudo Ativo ▾”.' }),
+          el('li', { text: 'Escolha “Duplicar” (ou “Fazer uma cópia”).' }),
+          el('li', { text: 'Use a cópia que abrir e permita o acesso ao Claude no primeiro uso.' })),
+        el('p', { class: 'hint', text: 'Na sua cópia, a IA (resumos, questões, podcast e cronograma) funciona com a sua conta do Claude.' }),
+        el('div', { class: 'q-actions' }, el('button', { type: 'button', class: 'primary', text: 'Entendi', onclick: close }))));
+    ov.addEventListener('click', e => { if (e.target === ov) close(); });
+    document.body.append(ov);
+    window.scrollTo({ top: 0, behavior: 'smooth' });
+  }
   function showLoginHint() {
     if ($('loginHint')) return;
     // Página compartilhada: mesmo com a conta conectada, o Claude não libera a IA para quem só visita a página de outra pessoa.
-    // Depois de um "Já entrei", o aviso passa a explicar a cópia (Duplicar), que é o que resolve nesse caso.
     let tried = false; try { tried = sessionStorage.getItem('leitor-ativo-login-retry') === '1'; } catch (_) {}
-    const dupSteps = el('ol', { class: 'login-steps' },
-      el('li', { text: 'Toque no nome “Leitor de Estudo Ativo ▾”, no topo da página.' }),
-      el('li', { text: 'Escolha “Duplicar” (ou “Fazer uma cópia”).' }),
-      el('li', { text: 'Use a cópia que abrir e, no primeiro uso, permita o acesso ao Claude.' }));
+    const dupBtn = el('button', { type: 'button', class: 'primary dup-btn', text: '📄 Fazer minha cópia (Duplicar)', onclick: showDupGuide });
     const bar = el('div', { id: 'loginHint', class: 'login-hint', role: 'status' },
       tried
         ? el('div', {}, el('strong', { text: '📄 Já entrou e o aviso continua? Faça a sua cópia do app' }),
-            el('p', { text: 'Nesta página compartilhada, o Claude não libera a IA para quem está visitando, mesmo com a conta conectada. Na sua cópia, a IA funciona com a sua conta:' }), dupSteps,
-            el('p', { class: 'hint', text: 'A leitura em voz alta funciona mesmo sem a IA.' }))
-        : el('div', {}, el('strong', { text: '🔐 Entre com a sua conta do Claude para usar a IA' }),
-            el('p', { text: 'Toque em “Entrar”, no topo da página, e faça login. O resumo, as questões, o podcast e o cronograma passam a usar a IA do Claude na sua conta. A leitura em voz alta funciona mesmo sem entrar.' }),
-            el('p', { class: 'hint', text: 'Já está conectado e o aviso continua? Esta é uma página compartilhada: faça a sua cópia tocando no nome do app no topo (▾) → “Duplicar”.' })),
-      el('div', { class: 'q-actions' },
-        tried ? null : el('button', { type: 'button', class: 'primary', text: '↻ Já entrei: recarregar', onclick: () => { try { sessionStorage.setItem('leitor-ativo-login-retry', '1'); } catch (_) {} location.reload(); } }),
+            el('p', { text: 'Nesta página compartilhada, o Claude não libera a IA para quem está visitando, mesmo com a conta conectada. Na sua cópia, a IA funciona com a sua conta.' }))
+        : el('div', {}, el('strong', { text: '🔐 Para usar a IA: entre na sua conta e faça a sua cópia' }),
+            el('p', { text: 'Sem conta: toque em “Entrar”, no topo, e faça login. Já conectado e o aviso continua? Esta é uma página compartilhada: faça a sua cópia com o botão abaixo. A leitura em voz alta funciona mesmo sem a IA.' })),
+      el('div', { class: 'q-actions' }, dupBtn,
+        tried ? null : el('button', { type: 'button', text: '↻ Já entrei: recarregar', onclick: () => { try { sessionStorage.setItem('leitor-ativo-login-retry', '1'); } catch (_) {} location.reload(); } }),
         el('button', { type: 'button', text: 'Agora não', onclick: () => bar.remove() })));
     document.querySelector('main')?.prepend(bar);
+    if (tried) showDupGuide();
   }
   // Ponto único para gerar (usado pelo botão do modo livro e por "Gerar novas").
   ile.run = (kind, scope) => (kind === 'summary' ? generateSummary(scope) : kind === 'extract' ? generateFromFile(scope) : generateQuestions(scope));
