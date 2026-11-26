@@ -2649,7 +2649,7 @@ ${blocos}
     window.scrollTo({ top: 0, behavior: 'smooth' });
   }
   function showLoginHint() {
-    if ($('loginHint')) return;
+    if ($('loginHint') || loadSetting('login-hint-off', '') === 'yes') return; // "Agora não" esconde o aviso de vez (o status da IA ainda explica se tentar usar)
     // Página compartilhada: mesmo com a conta conectada, o Claude não libera a IA para quem só visita a página de outra pessoa.
     let tried = false; try { tried = sessionStorage.getItem('leitor-ativo-login-retry') === '1'; } catch (_) {}
     const dupBtn = el('button', { type: 'button', class: 'primary dup-btn', text: '📄 Fazer minha cópia (Duplicar)', onclick: showDupGuide });
@@ -2661,7 +2661,7 @@ ${blocos}
             el('p', { text: 'Sem conta: toque em “Entrar”, no topo, e faça login. Já conectado e o aviso continua? Esta é uma página compartilhada: faça a sua cópia com o botão abaixo. A leitura em voz alta funciona mesmo sem a IA.' })),
       el('div', { class: 'q-actions' }, dupBtn,
         tried ? null : el('button', { type: 'button', text: '↻ Já entrei: recarregar', onclick: () => { try { sessionStorage.setItem('leitor-ativo-login-retry', '1'); } catch (_) {} location.reload(); } }),
-        el('button', { type: 'button', text: 'Agora não', onclick: () => bar.remove() })));
+        el('button', { type: 'button', text: 'Agora não', onclick: () => { saveSetting('login-hint-off', 'yes'); bar.remove(); } })));
     document.querySelector('main')?.prepend(bar);
     if (tried) showDupGuide();
   }
