@@ -17,7 +17,7 @@
   <meta name="mobile-web-app-capable" content="yes">
   <meta name="apple-mobile-web-app-title" content="Leitor Ativo">
   <meta name="apple-mobile-web-app-status-bar-style" content="default">
-  <title>Leitor de Estudo Ativo • Versão 9.17</title>
+  <title>Leitor de Estudo Ativo • Versão 9.18</title>
   <!-- PDF.js (módulo moderno) é carregado somente ao abrir PDFs. Biblioteca e worker usam a mesma versão. -->
   <style>
     :root {
@@ -572,7 +572,7 @@
 <main>
   <header class="header">
     <div>
-      <div class="eyebrow">Estudo com áudio • v9.17</div>
+      <div class="eyebrow">Estudo com áudio • v9.18</div>
       <h1>Leitor de Estudo Ativo</h1>
       <p class="subtitle">Ouça, acompanhe a frase em destaque e retome de onde quiser.</p>
     </div>
@@ -3726,6 +3726,9 @@ ${blocos}
       ct.active = false;
       const code = error?.code;
       if (code !== 'viewer_stopped' && code !== 'not_granted' && (!navigator.onLine || /network|fetch|offline|unavailable/i.test(String(code || error?.message || '')))) { hooks.offlineSwitch?.('A voz do Claude precisa de internet'); return; }
+      // Limite de leituras ou falha da voz do Claude: troca sozinha para a voz do celular e volta depois, sem parar a leitura.
+      if (code === 'rate_limited' && hooks.fallbackSwitch?.('Muitas leituras seguidas com a voz do Claude', 3 * 60e3)) return;
+      if (code && !['viewer_stopped', 'not_granted'].includes(code) && hooks.fallbackSwitch?.('A voz do Claude falhou agora', 60e3)) return;
       state.mode = 'idle'; controls();
       if (code === 'not_granted') { ctDisable(); status('A voz do Claude foi desativada. Voltei para a voz do sistema.', true); }
       else if (code === 'rate_limited') status('Muitas leituras seguidas com a voz do Claude. Aguarde um pouco ou use a voz do sistema.', true);
@@ -4193,11 +4196,23 @@ ${blocos}
   const off = { on: false };
   const needsNet = () => els.voiceSelect.value.startsWith('claude:') || (usingNeural() && !nv.readyOk);
   const offlineBase = { playFrom: hooks.playFrom, externalEngine: hooks.externalEngine };
+  const fb = { until: 0, timer: null };
   hooks.playFrom = (index, token) => {
+    if (Date.now() < fb.until && els.voiceSelect.value.startsWith('claude:')) { state.lockedVoice = null; return false; } // pausa da voz do Claude
     if (!navigator.onLine && needsNet()) off.on = true;
     if (off.on && navigator.onLine) off.on = false;
     if (off.on) { state.lockedVoice = null; return false; } // false = usa a voz do sistema (Web Speech)
     return offlineBase.playFrom?.(index, token) || false;
+  };
+  hooks.fallbackSwitch = (why, ms) => {
+    if (!hasSpeech) return false;
+    fb.until = Date.now() + ms; state.lockedVoice = null;
+    clearTimeout(fb.timer);
+    // Passado o tempo, a próxima frase volta para a voz do Claude (reinicia do ponto atual).
+    fb.timer = setTimeout(() => { fb.until = 0; if (state.mode === 'playing' && els.voiceSelect.value.startsWith('claude:') && navigator.onLine) { status('Voltando para a voz do Claude.'); playFrom(state.index); } }, ms);
+    status(`🔁 ${why}. Continuando com a voz do celular; em ${Math.round(ms / 60e3)} min volto para a voz do Claude.`);
+    playFrom(state.index);
+    return true;
   };
   hooks.offlineSwitch = why => {
     if (!hasSpeech) { state.mode = 'idle'; controls(); status(why + ', e este navegador não tem voz própria. Conecte-se para continuar.', true); return; }
