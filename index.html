@@ -17,7 +17,7 @@
   <meta name="mobile-web-app-capable" content="yes">
   <meta name="apple-mobile-web-app-title" content="Leitor Ativo">
   <meta name="apple-mobile-web-app-status-bar-style" content="default">
-  <title>Leitor de Estudo Ativo • Versão 9.18</title>
+  <title>Leitor de Estudo Ativo • Versão 9.19</title>
   <!-- PDF.js (módulo moderno) é carregado somente ao abrir PDFs. Biblioteca e worker usam a mesma versão. -->
   <style>
     :root {
@@ -169,6 +169,7 @@
     .book-flow figure.doc-fig { margin: .5em 0 .9em; text-indent: 0; break-inside: avoid; }
     .book-flow figure.doc-fig img { max-height: calc(var(--bk-colh, 60vh) * .8); border-color: var(--bk-line); }
     .hide-images figure.doc-fig { display: none; }
+    .hide-images figure.doc-fig.gen-fig { display: block; }
     .img-viewer { position: fixed; inset: 0; z-index: 1200; background: rgba(0, 0, 0, .92); overflow: auto; display: flex; align-items: center; justify-content: center; padding: 48px 10px 20px; }
     .img-viewer[hidden] { display: none; }
     .img-viewer img { max-width: 100%; max-height: 100%; object-fit: contain; background: #fff; cursor: zoom-in; }
@@ -572,7 +573,7 @@
 <main>
   <header class="header">
     <div>
-      <div class="eyebrow">Estudo com áudio • v9.18</div>
+      <div class="eyebrow">Estudo com áudio • v9.19</div>
       <h1>Leitor de Estudo Ativo</h1>
       <p class="subtitle">Ouça, acompanhe a frase em destaque e retome de onde quiser.</p>
     </div>
@@ -728,6 +729,7 @@
       <button class="primary" id="btnBook" type="button" title="Abrir em tela cheia, com páginas, como num e-reader">📖 Ler como livro</button>
       <button id="btnGoIle" type="button" title="Ir para a geração de questões e resumo">❓ Questões I-L-E</button>
       <button id="btnKindle" type="button" title="Gera um EPUB com este texto, os flashcards e o caderno de erros para mandar ao Kindle">📟 Enviar para o Kindle</button>
+      <button id="btnFigs" type="button" title="A IA cria esquemas ilustrativos (fluxo, classificação, comparação) e o app coloca no texto aberto">🖼 Adicionar esquemas</button>
       <button id="btnPrev" type="button" disabled title="Frase anterior">← Anterior</button>
       <button class="primary" id="btnPlay" type="button" disabled>▶ Reproduzir</button>
       <button id="btnPause" type="button" disabled>Ⅱ Pausar</button>
@@ -3841,7 +3843,7 @@ ${blocos}
     const im = images.get(id);
     if (!im) return null;
     const fig = document.createElement('figure');
-    fig.className = 'doc-fig'; fig.dataset.img = id;
+    fig.className = 'doc-fig' + (String(id).startsWith('fig') ? ' gen-fig' : ''); fig.dataset.img = id;
     const img = new Image();
     img.src = im.url; img.alt = 'Imagem do documento (toque para ampliar)';
     if (im.w && im.h) { img.width = im.w; img.height = im.h; }
@@ -5251,6 +5253,64 @@ ${section}
     }
     return out.sort((a, b) => b.score - a.score).slice(0, 3).map(x => x.doc);
   }
+  const FIG_FORMATS = `  • passo a passo/processo: {"tipo":"fluxo","titulo":"...","itens":["etapa 1","etapa 2",...]} (3 a 7 itens)
+  • classificação/divisão: {"tipo":"hierarquia","titulo":"...","raiz":"...","filhos":[{"nome":"...","itens":["...","..."]}]} (2 a 4 filhos, até 4 itens cada)
+  • comparação: {"tipo":"comparacao","titulo":"...","colunas":["A","B"],"linhas":[{"aspecto":"...","valores":["...","..."]}]} (2 ou 3 colunas, 3 a 6 linhas)`;
+  // 🖼 Põe esquemas num texto que já existe (material antigo, resumo, apostila): a IA lê as seções e o app desenha.
+  async function addFigures(doc, opt = {}) {
+    if (!doc) return 0;
+    if (!ile.sample && gem.key) { ile.sample = gemSample; ile.ready = true; }
+    const say = (m, e) => (opt.say || status)(m, e);
+    if (!ile.sample) { say(ile.needLogin ? LOGIN_MSG : 'Sem IA neste aparelho: entre na sua conta do Claude ou configure a chave do Gemini.', true); return 0; }
+    // Seções: pelos títulos "## "; sem títulos, em blocos de parágrafos.
+    let secs = doc.text.split(/\n(?=##?\s)/);
+    if (secs.length < 2) { const ps = doc.text.split(/\n{2,}/); const per = Math.max(1, Math.ceil(ps.length / 6)); secs = []; for (let i = 0; i < ps.length; i += per) secs.push(ps.slice(i, i + per).join('\n\n')); }
+    const clean = t => t.replace(/!\[[^\]]*\]\(img:[^)]+\)/g, '').trim();
+    const budget = Math.max(600, Math.floor(16000 / secs.length));
+    const listing = secs.map((t, i) => `[SEÇÃO ${i + 1}]\n${clean(t).slice(0, budget)}`).join('\n\n');
+    const have = (doc.images || []).filter(id => String(id).startsWith('fig')).length;
+    const want = Math.max(1, Math.min(4 - have, Math.ceil(secs.length / 2), 3));
+    if (have >= 4) { say('Este texto já tem esquemas suficientes.'); return 0; }
+    const prev = ile.statusEl; if (opt.statusEl) ile.statusEl = opt.statusEl;
+    let data;
+    try {
+      data = await ask(`Você é professor de cursinho para concursos. Abaixo está um material de estudo dividido em seções numeradas. Escolha as ${want} seções que MAIS ganham com um esquema visual e crie um esquema para cada uma, fiel ao texto (não invente normas nem números). Textos curtos (até ~8 palavras por item). Use UM destes formatos por esquema:
+${FIG_FORMATS}
+Responda APENAS com JSON válido: {"figuras":[{"secao":1,"figura":{...}}]}
+
+MATERIAL:
+<<<
+${listing}
+>>>`, opt.label || 'Criando os esquemas ilustrativos', { expect: 2500 });
+    } finally { if (opt.statusEl) ile.statusEl = prev; }
+    const list = (data?.figuras || []).filter(f => f?.figura && Number(f.secao) >= 1 && Number(f.secao) <= secs.length);
+    const added = [];
+    for (const f of list.slice(0, want)) {
+      try {
+        const im = await drawFigure(f.figura); if (!im) continue;
+        const k = Number(f.secao) - 1;
+        secs[k] = secs[k].replace(/\s*$/, '') + `\n\n![${String(f.figura.titulo || 'Esquema').replace(/[\[\]]/g, '')}](img:${im.id})\n`;
+        added.push(im);
+      } catch (e) { console.warn('figura', e); }
+    }
+    if (!added.length) { if (data) say('Não consegui criar esquemas para este texto agora. Tente de novo.', true); return 0; }
+    doc.text = secs.join('\n').replace(/\n{3,}/g, '\n\n');
+    doc.images = [...(doc.images || []), ...added.map(im => im.id)];
+    for (const im of added) { rememberImage(im); await libDb.putImage({ id: im.id, docId: doc.id, blob: im.blob, w: im.w, h: im.h }); }
+    doc.total = segmentText(doc.text).length;
+    await libDb.put(doc); libSaveMeta(true);
+    if (lib.activeId === doc.id && !opt.noReload) { const pos = state.index; await libSwitch(doc.id, { quiet: true }); if (pos < state.blocks.length) { state.index = pos; setActive(pos, true); } }
+    say(`🖼 ${added.length} ${added.length === 1 ? 'esquema adicionado' : 'esquemas adicionados'} a “${doc.name}”.`);
+    return added.length;
+  }
+  $('btnFigs').addEventListener('click', async () => {
+    const doc = libDoc(lib.activeId);
+    if (!doc) { status('Abra um arquivo da biblioteca (ou gere o material do dia) para adicionar esquemas.', true); return; }
+    if (state.mode === 'playing') { status('Pause a leitura antes de adicionar os esquemas.', true); return; }
+    const btn = $('btnFigs'); btn.disabled = true;
+    try { await addFigures(doc, { statusEl: $('statusMsg') }); } finally { btn.disabled = false; }
+  });
+
   // ---------- 🖼 Desenho dos esquemas (canvas → PNG) ----------
   async function drawFigure(spec) {
     const tipo = String(spec?.tipo || '').toLowerCase();
@@ -5338,10 +5398,8 @@ Tópicos do edital: ${block.topicos.join('; ')}
 - 1.200 a 1.800 palavras, em português do Brasil, nível de prova de concurso.
 - Estrutura: títulos curtos; explicação clara; base legal/normativa quando houver (cite o dispositivo); exemplos; "Pegadinhas de prova"; e ao fim "Pontos-chave" (5 a 8 frases curtas).
 - Texto corrido, bom para ouvir em voz alta (sem tabelas).
-- ILUSTRAÇÕES: em 2 ou 3 seções (as que mais ganham com um esquema visual), inclua o campo "figura" com UM dos formatos abaixo. Textos curtos (até ~8 palavras por item), fiéis ao texto da seção:
-  • passo a passo/processo: {"tipo":"fluxo","titulo":"...","itens":["etapa 1","etapa 2",...]} (3 a 7 itens)
-  • classificação/divisão: {"tipo":"hierarquia","titulo":"...","raiz":"...","filhos":[{"nome":"...","itens":["...","..."]}]} (2 a 4 filhos, até 4 itens cada)
-  • comparação: {"tipo":"comparacao","titulo":"...","colunas":["A","B"],"linhas":[{"aspecto":"...","valores":["...","..."]}]} (2 ou 3 colunas, 3 a 6 linhas)
+- ILUSTRAÇÕES (obrigatório): em 2 ou 3 seções (as que mais ganham com um esquema visual), inclua o campo "figura" com UM dos formatos abaixo. Textos curtos (até ~8 palavras por item), fiéis ao texto da seção:
+${FIG_FORMATS}
 ${refText ? '- Baseie-se prioritariamente no MATERIAL DE REFERÊNCIA do aluno abaixo; complete com conhecimento consolidado, sem inventar normas. Se ele não tratar destes tópicos, ignore-o sem comentar: nunca escreva sobre o material de referência no texto.' : '- Use apenas conhecimento consolidado; não invente normas, números ou artigos.'}
 Responda APENAS com JSON válido: {"titulo":"string","secoes":[{"titulo":"string","texto":"string","figura":{…} (opcional)}]}
 ${refText ? `\nMATERIAL DE REFERÊNCIA:\n"""\n${refText}\n"""` : ''}`, `Preparando o material de “${block.materia}”`, { expect: 13000 });
@@ -5362,6 +5420,7 @@ ${refText ? `\nMATERIAL DE REFERÊNCIA:\n"""\n${refText}\n"""` : ''}`, `Preparan
     const col = `${(ed.data.concurso?.orgao || 'Concurso').slice(0, 40)} › Material diário`;
     const doc = libAdd(`${(opt.day || ed.data.view).split('-').reverse().slice(0, 2).join('/')} • ${block.materia}: ${data.titulo || block.topicos[0]}`.slice(0, 120), { text, pdfPages: null, ignored: [], images: figs }, col);
     block.docId = doc.id; edSave();
+    if (!figs.length) { try { await addFigures(doc, { noReload: true, statusEl: ed.statusEl, say: edStatus, label: `Criando os esquemas de “${block.materia}”` }); } catch (_) {} } // a IA às vezes pula as figuras
     if (opt.silent) return doc; // Livro do dia/atraso: gera em sequência sem trocar de tela.
     await libSwitch(doc.id, { quiet: true });
     edRenderToday();
